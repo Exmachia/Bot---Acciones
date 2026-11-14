@@ -14,7 +14,7 @@ moviéndose en la dirección de una sorpresa de resultados durante días).
 | Fase | Estado |
 |---|---|
 | 1. Datos y filtros | ✅ |
-| 2. Telegram | pendiente |
+| 2. Telegram | ✅ |
 | 3. Claude (noticias) | pendiente |
 | 4. Registro y reporte | pendiente |
 | 5. Backtest | pendiente |
@@ -38,6 +38,15 @@ cp .env.example .env    # y llena tus llaves (el .env nunca se sube a git)
 2. Regístrate con tu correo y confírmalo.
 3. En el *Dashboard* copia la **API Key** → `FINNHUB_API_KEY` en `.env`.
 
+### Telegram (gratis)
+1. En Telegram busca **@BotFather** (palomita azul) y mándale `/newbot`.
+2. Dale un nombre (ej. `Alertas de Acciones`) y un usuario que termine en `bot`.
+3. Copia el **token** que te da → `TELEGRAM_BOT_TOKEN` en `.env`.
+4. Abre tu bot, dale **Iniciar** y mándale `hola`.
+5. Saca tu número de chat con
+   `curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates"` (busca `"chat":{"id":...}`)
+   → `TELEGRAM_CHAT_ID` en `.env`.
+
 ### Alpaca (cuenta paper, gratis)
 1. Regístrate en https://alpaca.markets. **No necesitas depositar ni verificar identidad** para paper.
 2. En el dashboard, arriba a la izquierda, asegúrate de estar en **Paper Trading**
@@ -51,7 +60,16 @@ cp .env.example .env    # y llena tus llaves (el .env nunca se sube a git)
 ```bash
 python -m pytest                       # pruebas
 python -m pead_bot.cli scan --dry-run  # escanea e imprime por qué pasa o no cada candidato
+python -m pead_bot.cli scan            # igual, y además manda las alertas a Telegram
+python -m pead_bot.cli telegram-test   # manda una alerta de EJEMPLO para ver el formato
 ```
+
+### Qué manda a Telegram
+- ⏳ **Pendientes de confirmación** (antes de abrir): pasan todo menos el volumen
+  relativo, que aún no se puede medir. No es señal todavía.
+- 🟢 **Alerta**: ya pasó todos los filtros. Trae catalizador, resumen, cuánto se ha
+  movido, plan (entrada, stop, objetivo, fecha límite), puntos y link al reporte en la SEC.
+- Cada acción se avisa una sola vez por día (registro en `data/cache/sent.json`).
 
 ## La estrategia, paso a paso
 

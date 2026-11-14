@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from .config import Config
 from .data.alpaca import SIP_DELAY, AlpacaClient, TradingDay
 from .data.finnhub import FinnhubClient
 from .schedule import NY, report_timestamp, session_minutes_elapsed
-from .strategy.filters import (CandidateData, Evaluation, average_volume, base_close,
-                               eps_surprise_pct, evaluate, is_fresh, relative_volume)
+from .strategy.filters import (CandidateData, Evaluation, active_session, average_volume,
+                               base_close, eps_surprise_pct, evaluate, is_fresh,
+                               relative_volume)
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class ScanResult:
     trading_days: list
     evaluations: list[Evaluation]
     skipped_pre_filter: int
+    active_day: date | None = None  # sesión en juego: hoy, o el siguiente día hábil si ya cerró
 
 
 def _chunks(xs, n):
@@ -36,6 +38,7 @@ def run_scan(cfg: Config, fh: FinnhubClient, ap: AlpacaClient, now: datetime | N
     cal = ap.calendar(now.date() - timedelta(days=45), now.date() + timedelta(days=30))
     trading_days = [d.date for d in cal]
     session = next((d for d in cal if d.date == now.date()), None)
+    active = active_session(now, cal)
 
     # 1) Reportes recientes con sorpresa de EPS suficiente (filtro barato, sin más llamadas)
     reports = fh.earnings_calendar(now.date() - timedelta(days=5), now.date())
@@ -51,7 +54,7 @@ def run_scan(cfg: Config, fh: FinnhubClient, ap: AlpacaClient, now: datetime | N
         picked.append(r)
     skipped = len(reports) - len(picked)
     if not picked:
-        return ScanResult(now, session, trading_days, [], skipped)
+        return ScanResult(now, session, trading_days, [], skipped, active)
 
     symbols = sorted({r.symbol for r in picked})
 
@@ -94,4 +97,4 @@ def run_scan(cfg: Config, fh: FinnhubClient, ap: AlpacaClient, now: datetime | N
         )
         evals.append(evaluate(data, s, f))
     evals.sort(key=lambda e: (e.passed, e.score, e.eps_surprise or 0), reverse=True)
-    return ScanResult(now, session, trading_days, evals, skipped)
+    return ScanResult(now, session, trading_days, evals, skipped, active)
