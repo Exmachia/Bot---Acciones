@@ -91,8 +91,28 @@ def _summary_lines(title: str, s: Summary) -> list[str]:
     return lines
 
 
+def committee_lines(approved: list[Trade], rejected: list[Trade], costs: CostsCfg) -> list[str]:
+    """¿El comité acierta? Compara lo que aprobó contra lo que rechazó (ambas simuladas)."""
+    def avg(ts):
+        return sum(trade_cost(t.entry, t.exit_price, costs).net_pct for t in ts) / len(ts)
+    if not rejected:
+        return []
+    lines = ["<b>⚖️ ¿El comité acierta?</b>",
+             f"Aprobadas: {len(approved)} · promedio {avg(approved):+.1f}% neto" if approved
+             else "Aprobadas: ninguna cerrada aún",
+             f"Rechazadas (solo simuladas): {len(rejected)} · promedio {avg(rejected):+.1f}% neto"]
+    if approved and len(approved) + len(rejected) >= 20:
+        better = avg(approved) > avg(rejected)
+        lines.append("→ Por ahora el comité " + ("sí está filtrando bien." if better
+                                                  else "NO está ayudando: las rechazadas fueron igual o mejor."))
+    else:
+        lines.append("→ Aún muy pocas para saber si el comité ayuda.")
+    return lines
+
+
 def format_weekly(week: list[Trade], all_closed: list[Trade], open_: list[Trade],
-                  today: date, costs: CostsCfg, default_amount: float) -> str:
+                  today: date, costs: CostsCfg, default_amount: float,
+                  rejected: list[Trade] | None = None) -> str:
     lines = [
         f"📊 <b>Reporte semanal · {fmt_date(today - timedelta(days=6))} a {fmt_date(today)}</b>",
         "<i>Simulado, con el monto que dio cada alerta según tu regla.</i>",
@@ -113,6 +133,9 @@ def format_weekly(week: list[Trade], all_closed: list[Trade], open_: list[Trade]
             lines.append(f"• {escape(t.symbol)} (${amount_of(t, default_amount):,.0f}): entrada ${t.entry:,.2f} · stop ${t.stop:,.2f} · "
                          f"objetivo ${t.target:,.2f} · límite {fmt_date(t.deadline)}")
         lines.append("")
+    comm = committee_lines(all_closed, rejected or [], costs)
+    if comm:
+        lines += comm + [""]
     lines.append(f"Costos: cada operación necesita subir ~{breakeven_move_pct(costs):.1f}% solo para "
                  "no perder (comisión, IVA y tipo de cambio).")
     if total.n < MIN_TRADES_TO_JUDGE:

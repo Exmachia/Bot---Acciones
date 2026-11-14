@@ -118,11 +118,13 @@ def _read_news(res, cfg, ap) -> None:
     if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
         print("(Sin ANTHROPIC_API_KEY en .env: las alertas salen sin lectura de noticias.)")
         return
+    from .llm.committee import CommitteeAnalyzer
     from .llm.enrich import enrich
     from .llm.news import NewsAnalyzer
-    n = enrich(res, cfg, ap, NewsAnalyzer(cfg.llm.model), ROOT / "data" / "cache" / "analysis")
+    analyzer = (CommitteeAnalyzer if cfg.llm.modo == "comite" else NewsAnalyzer)(cfg.llm.model)
+    n = enrich(res, cfg, ap, analyzer, ROOT / "data" / "cache" / "analysis")
     if n:
-        print(f"Claude leyó noticias de {n} candidato(s).")
+        print(f"Claude ({cfg.llm.modo}) leyó noticias de {n} candidato(s).")
 
 
 def _store():
@@ -131,11 +133,31 @@ def _store():
     return TradeStore(ROOT / "data" / "pead.sqlite")
 
 
+def _spy_price(ap):
+    if ap is None:
+        return None
+    try:
+        return ap.latest_prices(["SPY"]).get("SPY")
+    except Exception:  # noqa: BLE001 — sin SPY la operación igual se registra
+        return None
+
+
 def _send(res, cfg, tg, ap=None) -> int:
     from .config import ROOT
-    from .notify.dispatch import SentStore, build_messages
+    from .notify.dispatch import SentStore, build_messages, shadow_trades
     store = SentStore(ROOT / "data" / "cache" / "sent.json")
     sent = store.load()
+    shadows = shadow_trades(res, cfg, sent)
+    if shadows and tg is not None:  # rechazadas por el comité: solo simulación
+        db = _store()
+        spy = _spy_price(ap)
+        for key, t in shadows:
+            t.spy_entry = spy
+            db.add(t)
+            sent.add(key)
+        store.save(sent, res.now.date())
+        print(f"El comité rechazó {len(shadows)}: " + ", ".join(t.symbol for _, t in shadows)
+              + " (quedan en simulación para comparar)")
     msgs = build_messages(res, cfg, sent, open_total=_store().open_total())
     if not msgs:
         print("\nMensajes a Telegram: ninguno nuevo.")
@@ -146,12 +168,7 @@ def _send(res, cfg, tg, ap=None) -> int:
             print("\n" + m.text)
         return 0
     trades = _store() if any(m.trade for m in msgs) else None
-    spy = None
-    if trades is not None and ap is not None:
-        try:
-            spy = ap.latest_prices(["SPY"]).get("SPY")
-        except Exception:  # noqa: BLE001 — sin SPY la operación igual se registra
-            spy = None
+    spy = _spy_price(ap) if trades is not None else None
     from .notify.decisions import alert_buttons
     for m in msgs:
         tg.send(m.text, buttons=alert_buttons(m.trade.symbol, m.trade.entry_date) if m.trade else None)
@@ -179,11 +196,15 @@ def cmd_telegram_test(args) -> int:
                       price=104.0, base_close=100.0, avg_volume=3e6, market_cap=25e9, rvol=3.1,
                       guidance_raised=True)
     ev = evaluate(d, cfg.strategy, cfg.filters)
-    from .llm.news import NewsAnalysis
-    ev.analysis = NewsAnalysis(
-        resumen="Vendió más de lo esperado en todas sus divisiones.\nSubió su pronóstico del año.",
+    from .llm.committee import CommitteeVerdict
+    ev.analysis = CommitteeVerdict(
+        resumen="Vendió más de lo esperado en todas sus divisiones y subió su pronóstico del año.",
         sorpresa_real=True, letra_chica="", guia="subio", sentimiento="positivo",
-        riesgos=["Mucha competencia en su mercado"], confianza=4)
+        riesgos=["Mucha competencia en su mercado"], confianza=4,
+        prediccion="Es probable que siga subiendo poco a poco esta semana por el pronóstico al alza, "
+                   "aunque si el mercado cae podría frenarse.",
+        a_favor="Superó en ganancias y ventas, y subió su pronóstico del año.",
+        en_contra="Ya subió 4% y su sector tiene mucha competencia.")
     days = [now.date() + timedelta(days=i) for i in range(1, 15)
             if (now.date() + timedelta(days=i)).weekday() < 5]
     plan = make_plan(d.price, now.date(), cfg.plan, days)
@@ -226,8 +247,8 @@ def cmd_track(args) -> int:
     print(f"Abiertas que siguen: {len(store.open_trades())} · cerradas hoy: {len(closed)}")
     for c in closed:
         txt = format_closed(c, cfg.capital.tope_por_operacion_mxn)
-        print("\n" + txt)
-        if tg:
+        print("\n" + ("" if c.trade.alertada else "(rechazada por el comité, no se avisa) ") + txt)
+        if tg and c.trade.alertada:
             tg.send(txt)
     if tg:
         _watch(tg, cfg, ap, None)  # avisa de tus jugadas que terminaron con el cierre
@@ -244,8 +265,12 @@ def cmd_report(args) -> int:
     tg = None if args.dry_run else _telegram()
     store = _store()
     today = datetime.now(NY).date()
-    txt = format_weekly(store.closed_between(today - timedelta(days=6), today), store.all_closed(),
-                        store.open_trades(), today, cfg.costs, cfg.capital.tope_por_operacion_mxn)
+    week = store.closed_between(today - timedelta(days=6), today)
+    closed = store.all_closed()
+    txt = format_weekly([t for t in week if t.alertada], [t for t in closed if t.alertada],
+                        [t for t in store.open_trades() if t.alertada], today, cfg.costs,
+                        cfg.capital.tope_por_operacion_mxn,
+                        rejected=[t for t in closed if not t.alertada])
     print(txt)
     if tg:
         tg.send(txt)
@@ -257,11 +282,19 @@ def cmd_backtest(args) -> int:
     """Fase 5: backtest de 1 año con datos gratis (tarda la primera vez; luego usa caché)."""
     from datetime import date
 
-    from .backtest.run import collect_and_simulate, format_report, write_csv
+    from .backtest.run import collect, collect_and_simulate, format_report, variants_report, write_csv
     from .config import ROOT
     cfg = load_config(args.config)
     fh, ap = _clients()
     end = date.fromisoformat(args.end) if args.end else date.today()
+    if args.variantes:
+        txt = variants_report(collect(cfg, fh, ap, ROOT / "data" / "cache" / "backtest", end), cfg, ap,
+                              cfg.capital.monto(None))
+        out = ROOT / "data" / "backtest" / f"variantes_{end.isoformat()}.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(txt, encoding="utf-8")
+        print(txt)
+        return 0
     rep = collect_and_simulate(cfg, fh, ap, ROOT / "data" / "cache" / "backtest", end)
     amount = cfg.capital.monto(None)
     out = ROOT / "data" / "backtest" / f"operaciones_{end.isoformat()}.csv"
@@ -313,6 +346,7 @@ def main(argv=None) -> int:
     gd.set_defaults(func=cmd_guide)
     bt = sub.add_parser("backtest", help="Backtest de 1 año con datos gratis")
     bt.add_argument("--end", default=None, help="Último día (AAAA-MM-DD); por defecto hoy")
+    bt.add_argument("--variantes", action="store_true", help="Compara las variantes de plazo")
     bt.set_defaults(func=cmd_backtest)
     tr = sub.add_parser("track", help="Cierre diario de operaciones simuladas")
     tr.add_argument("--dry-run", action="store_true", help="No manda nada a Telegram")

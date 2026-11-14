@@ -33,54 +33,134 @@ class BacktestReport:
         return [r for r in self.results if r.outcome == "operacion"]
 
 
-def collect_and_simulate(cfg: Config, fh, ap, cache_dir: Path, end: date) -> BacktestReport:
+@dataclass
+class Context:
+    start: date
+    end: date
+    universe: int
+    liquid: int
+    stats: dict
+    events: list
+    daily: dict
+    shares: dict
+    cal: list
+    spy_daily: dict
+    spy_open: dict
+    spy_bars: list
+    cache: D.Cache
+
+
+def collect(cfg: Config, fh, ap, cache_dir: Path, end: date) -> Context:
+    """Junta (o lee del caché) todo lo necesario para simular."""
     start = end - timedelta(days=365)
     cache = D.Cache(cache_dir)
     f, s = cfg.filters, cfg.strategy
-
     syms = D.universe(ap, cache)
     log.info("universo: %d acciones", len(syms))
     daily = D.daily_bars(ap, syms + ["SPY"], start - timedelta(days=45), end, cache,
                          min_avg_volume=f.min_avg_volume * 0.5, min_price=f.min_price)
     liquid = [x for x in daily if x != "SPY"]
-    log.info("líquidas en algún momento del año: %d", len(liquid))
-
     earn = D.earnings(fh, liquid, cache)
     with_surprise = D.candidates_with_surprise(earn, s.eps_surprise_min_pct, s.min_abs_eps_estimate)
     sec = D.sec_report_times(with_surprise, cache)
     events, stats = D.build_events(earn, sec, s.eps_surprise_min_pct, s.min_abs_eps_estimate, start, end)
-    log.info("eventos con sorpresa y fecha: %d", len(events))
     shares = D.shares(fh, sorted({e.symbol for e in events}), cache)
-
-    cal = ap.calendar(start - timedelta(days=45), end + timedelta(days=30))
-    sessions = {d.date: d for d in cal}
+    cal = ap.calendar(start - timedelta(days=45), end + timedelta(days=120))
     spy_bars = D.rows_to_bars(daily["SPY"])
-    spy_daily = {b.t.astimezone(NY).date(): b.c for b in spy_bars}
+    return Context(start, end, len(syms), len(liquid), stats, events, daily, shares, cal,
+                   {b.t.astimezone(NY).date(): b.c for b in spy_bars},
+                   {b.t.astimezone(NY).date(): b.o for b in spy_bars}, spy_bars, cache)
 
+
+def simulate_events(ctx: Context, cfg: Config, ap=None, variant=None) -> list[SimResult]:
     from ..strategy.filters import reaction_day
-    rep = BacktestReport(start, end, len(syms), len(liquid), stats)
-    for n, ev in enumerate(events, 1):
-        rd = reaction_day(ev.report_ts, cal)
-        bars = D.rows_to_bars(daily.get(ev.symbol, []))
-        if rd is None or rd not in sessions or rd > end:
-            rep.results.append(SimResult(ev, "sin_calendario"))
+    sessions = {d.date: d for d in ctx.cal}
+    out = []
+    for n, ev in enumerate(ctx.events, 1):
+        rd = reaction_day(ev.report_ts, ctx.cal)
+        bars = D.rows_to_bars(ctx.daily.get(ev.symbol, []))
+        if rd is None or rd not in sessions or rd > ctx.end:
+            out.append(SimResult(ev, "sin_calendario"))
             continue
-        # Solo bajar minutos si lo que no cambia en el día ya pasa (ahorra llamadas).
-        quick = simulate(ev, cfg, cal, bars, [], [], spy_daily, shares.get(ev.symbol))
+        quick = simulate(ev, cfg, ctx.cal, bars, [], [], ctx.spy_daily, ctx.shares.get(ev.symbol))
         if quick.outcome == "no_paso_filtros" and set(quick.failed or []) & {
                 "sorpresa_eps", "volumen_promedio", "valor_mercado"}:
-            rep.results.append(quick)
+            out.append(quick)
             continue
         ss = sessions[rd]
-        minute, spy_min = D.minute_bars(ap, ev.symbol, rd, ss.open, ss.close, cache)
-        rep.results.append(simulate(ev, cfg, cal, bars, minute, spy_min, spy_daily, shares.get(ev.symbol)))
-        if n % 25 == 0:
-            log.info("simulados %d/%d", n, len(events))
+        minute, spy_min = D.minute_bars(ap, ev.symbol, rd, ss.open, ss.close, ctx.cache)
+        out.append(simulate(ev, cfg, ctx.cal, bars, minute, spy_min, ctx.spy_daily,
+                            ctx.shares.get(ev.symbol), variant=variant, spy_open=ctx.spy_open))
+        if n % 200 == 0:
+            log.info("simulados %d/%d", n, len(ctx.events))
+    return out
 
-    in_period = [b for b in spy_bars if start <= b.t.astimezone(NY).date() <= end]
+
+def collect_and_simulate(cfg: Config, fh, ap, cache_dir: Path, end: date) -> BacktestReport:
+    ctx = collect(cfg, fh, ap, cache_dir, end)
+    rep = BacktestReport(ctx.start, ctx.end, ctx.universe, ctx.liquid, ctx.stats,
+                         simulate_events(ctx, cfg, ap))
+    in_period = [b for b in ctx.spy_bars if ctx.start <= b.t.astimezone(NY).date() <= ctx.end]
     if in_period:
         rep.spy_buy_hold_pct = (in_period[-1].c / in_period[0].c - 1) * 100
     return rep
+
+
+def split_halves(results: list[SimResult], mid: date) -> tuple[list, list]:
+    """Incluye las abiertas valuadas al último día (si tienen precio)."""
+    tr = [r for r in results if r.outcome == "operacion" or (r.outcome == "abierta" and r.cost)]
+    first = [r for r in tr if r.entry_time.astimezone(NY).date() < mid]
+    return first, [r for r in tr if r.entry_time.astimezone(NY).date() >= mid]
+
+
+def edge(st: Stats | None) -> float | None:
+    return None if st is None else st.avg_net - st.spy_avg
+
+
+def choose_variant(first_half: dict[str, Stats | None], min_trades: int = 20) -> str | None:
+    """La que más le saca a SPY en la primera mitad (con al menos min_trades)."""
+    ok = {k: edge(v) for k, v in first_half.items() if v is not None and v.n >= min_trades}
+    return max(ok, key=ok.get) if ok else None
+
+
+def variants_report(ctx: Context, cfg: Config, ap, amount: float) -> str:
+    from .variants import NO_TARGET, VARIANTS
+    mid = ctx.start + (ctx.end - ctx.start) / 2
+    rows, firsts, seconds, opens = [], {}, {}, {}
+    for v in VARIANTS:
+        res = simulate_events(ctx, cfg, ap, variant=v)
+        a, b = split_halves(res, mid)
+        firsts[v.key], seconds[v.key] = compute_stats(a, cfg, amount), compute_stats(b, cfg, amount)
+        opens[v.key] = sum(r.outcome == "abierta" for r in res)  # valuadas al último día
+        rows.append(v)
+
+    def cell(st):
+        if st is None:
+            return "sin operaciones"
+        return (f"{st.n:>4} ops · gana {st.wins / st.n * 100:>3.0f}% · neto {st.avg_net:+.2f}% · "
+                f"vs SPY {edge(st):+.2f}%")
+
+    L = [f"VARIANTES · elección {ctx.start}→{mid}, confirmación {mid}→{ctx.end}",
+         f"(por operación, después de costos; ${amount:,.0f} MXN por operación)", ""]
+    for v in rows:
+        tgt = "sin tope" if v.target_pct >= NO_TARGET else f"+{v.target_pct:.0f}%"
+        L += [f"{v.name} (stop -{v.stop_pct:.0f}%, objetivo {tgt})",
+              f"   1a mitad: {cell(firsts[v.key])}",
+              f"   2a mitad: {cell(seconds[v.key])}   [de esas, sin terminar: {opens[v.key]}]"]
+    win = choose_variant(firsts)
+    L.append("")
+    if win is None:
+        L.append("Ninguna variante tuvo suficientes operaciones en la 1a mitad para elegir.")
+        return "\n".join(L)
+    wv = next(v for v in rows if v.key == win)
+    L += [f"ELEGIDA con la 1a mitad: {wv.name} ({edge(firsts[win]):+.2f}% vs SPY por operación)",
+          "CONFIRMACIÓN (2a mitad, una sola vez): " + verdict(seconds[win])]
+    if seconds[win] is not None:
+        st = seconds[win]
+        L.append(f"   Total 2a mitad: {st.total_mxn:+,.0f} MXN · SPY mismos días {st.spy_mxn:+,.0f} MXN")
+    L += ["", "Notas: las jugadas que seguían abiertas al final se valúan al cierre del último día.",
+          "Solo 1 año y solo empresas que existen hoy (eso hace que todo se vea mejor, no peor)."]
+    return "\n".join(L)
 
 
 def write_csv(rep: BacktestReport, path: Path, amount: float) -> None:

@@ -41,6 +41,7 @@ class LlmCfg(BaseModel):
     model: str = "claude-haiku-5-5"
     max_news_items: int = 10
     min_confidence: int = 3
+    modo: str = "comite"  # "comite" (optimista + pesimista + juez) | "simple" (una sola lectura)
 
 
 class CostsCfg(BaseModel):

@@ -143,3 +143,62 @@ def test_compute_stats():
     st = compute_stats([r, r], CFG, 5_000)
     assert st.n == 2 and st.wins == 2 and st.total_mxn == pytest.approx(2 * 344.84, abs=0.01)
     assert st.spy_avg == pytest.approx(1.0) and st.se_net == 0
+
+
+# --- variantes (etapa 1) -----------------------------------------------------
+from pead_bot.backtest.run import choose_variant  # noqa: E402
+from pead_bot.backtest.variants import NO_TARGET, VARIANTS, Variant  # noqa: E402
+from pead_bot.data.alpaca import TradingDay  # noqa: E402
+
+
+def _cal_long():
+    d, out = date(2026, 10, 1), []
+    while d <= date(2027, 3, 31):
+        if d.weekday() < 5 and d not in (date(2026, 11, 26), date(2026, 12, 25), date(2027, 1, 1)):
+            out.append(TradingDay(d, datetime.combine(d, time(9, 30), tzinfo=NY),
+                                  datetime.combine(d, time(16, 0), tzinfo=NY)))
+        d += timedelta(days=1)
+    return out
+
+
+CAL_LONG = _cal_long()
+
+
+def _days_after(n, start=date(2026, 11, 13), o=105, h=107, l=103, c=106):
+    days = [x.date for x in CAL_LONG if x.date >= start][:n]
+    return {d: (o, h, l, c) for d in days}
+
+
+def test_long_hold_without_target_rides_until_deadline():
+    v = Variant("t", "20 días", 20, 8, NO_TARGET)
+    after = _days_after(25, h=125, c=120)            # sube mucho pero sin objetivo no sale
+    r = simulate(_ev(), CFG, CAL_LONG, _daily(after), _minutes(), SPY_MIN, SPY_D, SHARES, variant=v)
+    assert r.outcome == "operacion" and r.exit.reason == "fecha_limite"
+    assert r.exit.price == 120 and r.exit.day == sorted(after)[19]
+
+
+def test_next_day_entry_buys_at_next_open():
+    v = Variant("n", "20 días · día siguiente", 20, 8, NO_TARGET, "dia_siguiente")
+    after = _days_after(25, o=106, h=108, l=104, c=107)
+    spy_open = {d: 500.0 for d in after}
+    r = simulate(_ev(), CFG, CAL_LONG, _daily(after), _minutes(), SPY_MIN, SPY_D, SHARES,
+                 variant=v, spy_open=spy_open)
+    assert r.entry == 106 and r.entry_time.date() == date(2026, 11, 13)
+    assert r.exit.reason == "fecha_limite" and r.exit.price == 107
+
+
+def test_long_hold_still_respects_stop():
+    v = Variant("t", "40 días", 40, 10, NO_TARGET)
+    after = _days_after(3, o=100, h=101, l=92, c=93)  # 104 × 0.90 = 93.60 → stop
+    r = simulate(_ev(), CFG, CAL_LONG, _daily(after), _minutes(), SPY_MIN, SPY_D, SHARES, variant=v)
+    assert r.exit.reason == "stop" and r.exit.price == pytest.approx(93.6)
+
+
+def test_choose_variant_needs_enough_trades():
+    a, b, c = _stats(30, 0.5, 0.2, 0.1), _stats(30, 1.0, 0.2, 0.1), _stats(5, 9.0, 0.2, 0.1)
+    assert choose_variant({"a": a, "b": b, "c": c}) == "b"      # c tiene muy pocas
+    assert choose_variant({"a": None}) is None
+
+
+def test_variants_fixed_list():
+    assert [v.key for v in VARIANTS] == ["v5", "v20", "v40", "v60", "v20n", "v40n"]

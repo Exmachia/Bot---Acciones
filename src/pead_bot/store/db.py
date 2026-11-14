@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS trades (
     monto_mxn   REAL,                   -- pesos que dijo la alerta (regla de config.yaml)
     decision    TEXT,                   -- 'voy' | 'paso' | NULL (botones de Telegram)
     notices     TEXT,                   -- avisos de venta ya mandados, separados por coma
+    alertada    INTEGER DEFAULT 1,      -- 0 = el comité la rechazó: solo se simula, no se avisó
     UNIQUE(symbol, entry_date)
 );
 """
@@ -58,6 +59,7 @@ class Trade:
     monto_mxn: float | None = None
     decision: str | None = None
     notices: str | None = None
+    alertada: int = 1
     id: int | None = None
 
     def has_notice(self, kind: str) -> bool:
@@ -85,7 +87,8 @@ class TradeStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(trades)")}
-        for col, typ in (("monto_mxn", "REAL"), ("decision", "TEXT"), ("notices", "TEXT")):
+        for col, typ in (("monto_mxn", "REAL"), ("decision", "TEXT"), ("notices", "TEXT"),
+                         ("alertada", "INTEGER DEFAULT 1")):
             if col not in cols:  # bases creadas con una versión anterior
                 self.conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
         self.conn.commit()
@@ -114,7 +117,8 @@ class TradeStore:
     def open_total(self) -> tuple[int, float]:
         """(cuántas abiertas, pesos metidos en ellas)."""
         r = self.conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(monto_mxn), 0) FROM trades WHERE status='open'").fetchone()
+            "SELECT COUNT(*), COALESCE(SUM(monto_mxn), 0) FROM trades "
+            "WHERE status='open' AND alertada=1").fetchone()
         return int(r[0]), float(r[1])
 
     def add(self, t: Trade) -> bool:

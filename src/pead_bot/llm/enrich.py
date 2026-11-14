@@ -37,12 +37,14 @@ def enrich(res: ScanResult, cfg: Config, ap, analyzer, cache_dir: Path) -> int:
         if not needs_analysis(ev, pre):
             continue
         d = ev.data
-        f = Path(cache_dir) / f"{res.active_day.isoformat()}_{d.symbol}.json"
+        tag = getattr(analyzer, "cache_tag", None)
+        cls = getattr(analyzer, "output_cls", NewsAnalysis)
+        f = Path(cache_dir) / f"{res.active_day.isoformat()}_{d.symbol}{'_' + tag if tag else ''}.json"
         a, src = None, None
         if f.exists():
             try:
                 cached = json.loads(f.read_text(encoding="utf-8"))
-                a = NewsAnalysis.model_validate(cached["analysis"])
+                a = cls.model_validate(cached["analysis"])
                 src = tuple(cached["source"]) if cached.get("source") else None
             except (ValueError, KeyError, TypeError):
                 a = None

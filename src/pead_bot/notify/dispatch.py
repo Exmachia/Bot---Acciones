@@ -74,6 +74,27 @@ def build_messages(res: ScanResult, cfg: Config, sent: set[str],
     return out
 
 
+def shadow_trades(res: ScanResult, cfg: Config, sent: set[str]) -> list[tuple[str, Trade]]:
+    """Jugadas que pasaron los filtros pero el comité calificó bajo: no se avisan, pero se
+    simulan para comparar después si el comité acierta al rechazarlas."""
+    day = res.active_day
+    if day is None:
+        return []
+    out = []
+    for ev in res.evaluations:
+        if not ev.passed or ev.data.price is None or not low_confidence(ev, cfg):
+            continue
+        key = f"shadow:{day.isoformat()}:{ev.data.symbol}"
+        if key in sent:
+            continue
+        plan = make_plan(ev.data.price, day, cfg.plan, res.trading_days)
+        conf = ev.analysis.confianza
+        out.append((key, Trade(ev.data.symbol, ev.data.name, res.now, day, plan.entry, plan.stop,
+                               plan.target, plan.deadline, ev.score, conf,
+                               monto_mxn=cfg.capital.monto(conf), alertada=0)))
+    return out
+
+
 class SentStore:
     """Registro simple de avisos ya enviados (archivo JSON local).
     En la fase 4 esto se pasa a SQLite."""

@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from ..config import Config
+from ..config import Config, PlanCfg
 from ..data.alpaca import SIP_DELAY, Bar, TradingDay
 from ..schedule import NY, session_minutes_elapsed
 from ..strategy.filters import (CandidateData, average_volume, base_close, evaluate,
@@ -75,7 +75,9 @@ def _volume_until(bars: list[Bar], t: datetime) -> float:
 
 def simulate(ev: Event, cfg: Config, calendar: list[TradingDay], daily: list[Bar],
              minute: list[Bar], spy_minute: list[Bar], spy_daily: dict[date, float],
-             shares: float | None) -> SimResult:
+             shares: float | None, variant=None, spy_open: dict[date, float] | None = None) -> SimResult:
+    """`variant` (backtest/variants.py) cambia plazo, stop, objetivo y momento de entrada.
+    Sin variante se usan las reglas de config.yaml."""
     s, f = cfg.strategy, cfg.filters
     sessions = {d.date: d for d in calendar}
     rd = reaction_day(ev.report_ts, calendar)
@@ -109,14 +111,29 @@ def simulate(ev: Event, cfg: Config, calendar: list[TradingDay], daily: list[Bar
         if static_fail:
             return SimResult(ev, "no_paso_filtros", failed=static_fail)
         if e.passed:
-            return _trade(ev, cfg, calendar, session, t, price, minute, daily, spy_minute, spy_daily)
+            if variant is not None and variant.entry == "dia_siguiente":
+                return _trade_next_day(ev, cfg, calendar, session, daily, spy_daily, spy_open or {},
+                                       variant)
+            return _trade(ev, cfg, calendar, session, t, price, minute, daily, spy_minute, spy_daily,
+                          variant)
     failed = [c.name for c in last_eval.checks if c.passed is not True] if last_eval else ["sin_datos"]
     return SimResult(ev, "no_paso_filtros", failed=failed)
 
 
-def _trade(ev, cfg, calendar, session, t, price, minute, daily, spy_minute, spy_daily) -> SimResult:
+def _plan_cfg(cfg, variant):
+    if variant is None:
+        return cfg.plan
+    return PlanCfg(stop_loss_pct=variant.stop_pct, take_profit_pct=variant.target_pct,
+                   max_holding_days=variant.hold_days)
+
+
+def _trade(ev, cfg, calendar, session, t, price, minute, daily, spy_minute, spy_daily,
+           variant=None) -> SimResult:
     days = [d.date for d in calendar]
-    plan = make_plan(price, session.date, cfg.plan, days)
+    try:
+        plan = make_plan(price, session.date, _plan_cfg(cfg, variant), days)
+    except ValueError:  # el calendario no alcanza para la fecha límite
+        return SimResult(ev, "abierta", t, price)
     path = []
     eb = entry_day_bar(minute, t - timedelta(seconds=1))  # minutos que empiezan desde t
     if eb:
@@ -126,9 +143,36 @@ def _trade(ev, cfg, calendar, session, t, price, minute, daily, spy_minute, spy_
         if d > session.date:
             path.append(PathBar(d, b.o, b.h, b.l, b.c))
     ex = find_exit(plan.stop, plan.target, plan.deadline, path)
-    spy_in = _price_before(spy_minute, t)
+    return _result(ev, cfg, t, price, ex, path, _price_before(spy_minute, t), spy_daily)
+
+
+def _trade_next_day(ev, cfg, calendar, session, daily, spy_daily, spy_open, variant) -> SimResult:
+    """Confirmada el día de reacción, se compra a la APERTURA del siguiente día hábil."""
+    days = sorted(d.date for d in calendar)
+    nxt = next((d for d in days if d > session.date), None)
+    bars = {b.t.astimezone(NY).date(): b for b in daily}
+    if nxt is None or nxt not in bars:
+        return SimResult(ev, "abierta")
+    entry = bars[nxt].o
+    t = next(d.open for d in calendar if d.date == nxt)
+    try:
+        plan = make_plan(entry, nxt, _plan_cfg(cfg, variant), days)
+    except ValueError:
+        return SimResult(ev, "abierta", t, entry)
+    path = [PathBar(d, b.o, b.h, b.l, b.c) for d, b in sorted(bars.items()) if d >= nxt]
+    ex = find_exit(plan.stop, plan.target, plan.deadline, path)
+    return _result(ev, cfg, t, entry, ex, path, spy_open.get(nxt), spy_daily)
+
+
+def _result(ev, cfg, t, entry, ex, path, spy_in, spy_daily) -> SimResult:
+    """Si no terminó antes de que se acaben los datos, se valúa al cierre del último día
+    ("sin_terminar"): así las jugadas largas no quedan fuera (si no, solo contarían las que
+    tocaron el stop pronto y se verían peor de lo que son)."""
+    outcome = "operacion"
     if ex is None:
-        return SimResult(ev, "abierta", t, price)
+        if not path:
+            return SimResult(ev, "abierta", t, entry)
+        ex, outcome = Exit(path[-1].day, path[-1].c, "sin_terminar"), "abierta"
     spy_out = spy_daily.get(ex.day)
     spy_pct = (spy_out / spy_in - 1) * 100 if spy_in and spy_out else None
-    return SimResult(ev, "operacion", t, price, ex, trade_cost(price, ex.price, cfg.costs), spy_pct)
+    return SimResult(ev, outcome, t, entry, ex, trade_cost(entry, ex.price, cfg.costs), spy_pct)

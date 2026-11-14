@@ -87,7 +87,17 @@ def what_happened_lines(ev: Evaluation) -> list[str]:
 
 
 def analysis_lines(a) -> list[str]:
-    """Lectura de noticias de Claude (fase 3), corta."""
+    """Lectura de noticias: comité (optimista/pesimista/juez) o lectura simple de Claude."""
+    if hasattr(a, "prediccion"):
+        lines = ["⚖️ <b>COMITÉ</b>",
+                 f"🟢 A favor: {escape(a.a_favor.strip())}",
+                 f"🔴 En contra: {escape(a.en_contra.strip())}",
+                 f"Juez: confianza {a.confianza}/5 · sorpresa "
+                 + ("del negocio ✅" if a.sorpresa_real else "de una sola vez ⚠️")
+                 + f" · guía {_GUIA.get(a.guia, a.guia)}"]
+        if a.letra_chica.strip():
+            lines.append(f"🔎 Letra chica: {escape(a.letra_chica.strip())}")
+        return lines
     lines = ["🤖 <b>CLAUDE</b>", escape(a.resumen.strip())]
     surprise = "viene del negocio ✅" if a.sorpresa_real else "parece de una sola vez ⚠️"
     lines.append(f"Sorpresa {surprise} · guía {_GUIA.get(a.guia, a.guia)}")
@@ -109,8 +119,10 @@ def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 
     links = f'<a href="{escape(source_url(d.symbol))}">SEC</a>'
     if source:
         links += f' · <a href="{escape(source[1])}">{escape(source[0])}</a>'
-    lines = [
-        f"🟢 <b>{escape(d.symbol)}</b> · {escape(d.name)}",
+    lines = [f"🟢 <b>{escape(d.symbol)}</b> · {escape(d.name)}"]
+    if ev.analysis is not None and hasattr(ev.analysis, "prediccion"):
+        lines.append(f"🔮 <b>Lo que creemos:</b> {escape(ev.analysis.prediccion.strip())}")
+    lines += [
         SEP,
         *play_lines(ev, plan, cfg.capital, cfg.costs, cfg.plan.max_holding_days, open_total),
         SEP,
@@ -162,7 +174,7 @@ def format_guide(cfg: Config) -> str:
         "mucho volumen).",
         f"3. Que no haya subido ya más de {f.max_gain_since_prev_close_pct:.0f}% (para no llegar tarde).",
         f"4. Que hoy se esté negociando al menos {f.min_relative_volume:.0f} veces lo normal.",
-        "5. Que Claude lea las noticias y no encuentre letra chica (confianza 3 de 5 o más).",
+        "5. Que el comité de Claude (optimista, pesimista y juez) le dé confianza 3 de 5 o más.",
         "",
         "<b>Los mensajes</b>",
         "⏳ Pendientes: acciones a vigilar antes de abrir. No es señal.",

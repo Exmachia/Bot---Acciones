@@ -57,6 +57,16 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       41% ganadoras, +0.17% bruto, −0.91% neto, SPY mismos días +0.21% → NO le gana a SPY
       (−1.11%/op, rango −1.47 a −0.75). Sin bolsillo claro de ventaja; no sobreajustar reglas
       al mismo año. Finnhub gratis: calendario solo ~1 mes atrás.
+- [x] Etapa 1 (plan de mejora): `backtest/variants.py` (6 variantes fijadas antes de ver datos),
+      `backtest --variantes`, elección en 1a mitad y confirmación única en 2a; abiertas al
+      final se valúan al último cierre ("sin_terminar"). Resultado: NINGUNA le gana a SPY
+      (60 días elegida: −0.26% en 1a mitad, −2.71% en 2a). No seguir ajustando con el mismo año.
+- [x] Etapa 3: comité (`llm/committee.py`): optimista + pesimista + juez (CommitteeVerdict con
+      prediccion, a_favor, en_contra). `llm.modo` = comite|simple. Rechazadas (conf < 3) se
+      guardan con `alertada=0` (no se avisan ni cuentan en total abierto); el reporte compara.
+- Pendiente del plan: Etapa 2 (varias recetas en paralelo con campeona), Etapa 4 (datos de
+  pago 3-5 años, solo si algo promete), Etapa 5 (filtro de mercado, tope total, freno),
+  Etapa 6 (criterios para dinero real). Idea alterna: bot de tendencia semanal con ETFs.
 - [x] Botones ✅ Voy / ❌ Paso (`notify/decisions.py`): getUpdates en cada corrida (solo del
       chat del usuario), columnas `decision` y `notices`; avisos de venta una vez: stop,
       objetivo, último día, cierre. Comando `inbox`. Alerta de ejemplo usa símbolo EJEM (no

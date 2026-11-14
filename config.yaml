@@ -28,6 +28,7 @@ plan:
 llm:
   model: claude-haiku-5-5
   max_news_items: 10
+  modo: comite                  # comite = optimista + pesimista + juez (3 lecturas) | simple = 1 lectura
   min_confidence: 3             # alertas con confianza menor no se mandan (fase 3)
 
 costs:                          # se aplican en reporte y backtest

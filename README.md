@@ -175,6 +175,29 @@ Run workflow** puedes correrlo a mano para probar.
 
 Una vez que corre en GitHub, no lo corras también en tu compu (tendrías dos historiales).
 
+### Etapa 1: ¿y si se mantiene más tiempo? (`backtest --variantes`)
+6 variantes fijadas **antes** de ver resultados (5, 20, 40 y 60 días; entrada el mismo día o al
+día siguiente). Se eligió con la 1a mitad del año y se confirmó una sola vez con la 2a:
+
+| Variante | 1a mitad vs SPY | 2a mitad vs SPY |
+|---|---|---|
+| 5 días (actual) | −1.60% | −0.71% |
+| 20 días | −2.01% | −1.00% |
+| 40 días | −0.87% | −1.71% |
+| 60 días (elegida) | −0.26% | **−2.71%** |
+| 20 días · día siguiente | −2.39% | −1.61% |
+| 40 días · día siguiente | −1.40% | −2.27% |
+
+**Ninguna le gana a SPY.** Mantener más tiempo no arregla la estrategia: la selección de acciones
+(grandes sorpresas en empresas grandes) no tuvo deriva este año.
+
+### Comité de Claude (Etapa 3)
+`llm.modo: comite` (por defecto): antes de cada alerta, un **optimista** y un **pesimista**
+argumentan con las noticias y un **juez** decide la confianza y escribe **"🔮 Lo que creemos"**,
+que va hasta arriba de la alerta. Las que el comité rechaza (confianza < 3) no te llegan, pero se
+simulan; el reporte del domingo compara aprobadas contra rechazadas para saber si el comité ayuda.
+Costo: ~3 lecturas por candidato (centavos). No se puede probar con datos pasados.
+
 ### Detalles técnicos que importan
 - **Horarios:** se calculan en hora de Nueva York (que cambia por horario de verano) y se
   muestran en hora de CDMX (que ya no cambia). La diferencia es de 1 h en invierno y 2 h en verano.
