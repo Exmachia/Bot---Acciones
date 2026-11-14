@@ -36,7 +36,8 @@ class FinnhubClient:
         self.api_key = api_key
 
     def _get(self, path: str, **params):
-        return get_json(f"{BASE}{path}", params={**params, "token": self.api_key})
+        # La llave va en header (no en la URL) para que no aparezca en logs.
+        return get_json(f"{BASE}{path}", params=params, headers={"X-Finnhub-Token": self.api_key})
 
     def earnings_calendar(self, start: date, end: date) -> list[EarningsReport]:
         data = self._get("/calendar/earnings", **{"from": start.isoformat(), "to": end.isoformat()})
