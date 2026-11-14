@@ -191,3 +191,21 @@ def test_weekly_report_is_honest_with_few_trades():
     assert "Abiertas (1)" in txt and "OPEN" in txt
     assert "~1.1%" in txt                              # punto de equilibrio por costos
     assert "todavía no se puede concluir" in txt
+
+
+def test_summary_uses_each_trades_amount():
+    a, b = _closed("A", 100, 108), _closed("B", 100, 108)
+    a.monto_mxn, b.monto_mxn = 10_000, 5_000
+    s = summarize([a, b], C, 999)
+    assert s.net_pnl == pytest.approx(689.68 + 344.84)
+    old = _closed("OLD", 100, 108)                     # sin monto → usa el de por defecto
+    assert summarize([old], C, 10_000).net_pnl == pytest.approx(689.68)
+
+
+def test_store_keeps_amount_and_open_total():
+    st = TradeStore(":memory:")
+    t1, t2 = _trade("A"), _trade("B")
+    t1.monto_mxn, t2.monto_mxn = 7_500, 5_000
+    st.add(t1), st.add(t2)
+    assert st.open_total() == (2, 12_500)
+    assert {t.monto_mxn for t in st.open_trades()} == {7_500, 5_000}

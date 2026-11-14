@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from html import escape
 
+from ..config import CapitalCfg, Config, CostsCfg
 from ..schedule import fmt_mx
 from ..strategy.filters import Evaluation
 from ..strategy.plan import TradePlan
@@ -72,18 +73,62 @@ def analysis_lines(a) -> list[str]:
     return lines
 
 
+RISK_NOTE = ("Monto calculado con tu regla de config.yaml. Es bajo tu propio riesgo y no es "
+             "asesoría financiera. La estrategia todavía no está probada con datos pasados.")
+
+
+def plain_lines(ev: Evaluation, plan: TradePlan, capital: CapitalCfg, costs: CostsCfg,
+                holding_days: int, open_total: tuple[int, float] | None = None) -> list[str]:
+    """Resumen para principiantes: qué pasó, cuánto (según TU regla) y por cuánto tiempo."""
+    from ..tracking.costs import trade_cost
+    d = ev.data
+    conf = ev.analysis.confianza if ev.analysis is not None else None
+    amount = capital.monto(conf)
+    pct = capital.pct(conf)
+    why = (f"confianza {conf} de 5 → {pct:.0f}% de tu tope de ${capital.tope_por_operacion_mxn:,.0f}"
+           if conf is not None else
+           f"sin lectura de noticias → {pct:.0f}% de tu tope de ${capital.tope_por_operacion_mxn:,.0f}")
+    loss = trade_cost(plan.entry, plan.stop, costs).pnl(amount)
+    gain = trade_cost(plan.entry, plan.target, costs).pnl(amount)
+    sp = f"{ev.eps_surprise:.0f}%" if ev.eps_surprise is not None else "más"
+    moved = f"{ev.gain_pct:+.1f}%" if ev.gain_pct is not None else "poco"
+    lines = [
+        "<b>En palabras sencillas</b>",
+        f"{escape(d.name)} ganó {sp} más de lo que esperaban los analistas y su acción solo se ha "
+        f"movido {moved}. Cuando pasa esto, a veces la acción sigue subiendo unos días.",
+        f"💵 <b>Monto: ${amount:,.0f} MXN</b> ({why}).",
+        f"⏱️ Tiempo: como máximo hasta el {fmt_date(plan.deadline)} ({holding_days} días de bolsa); "
+        "puede terminar antes.",
+        f"📉 Si baja a ${plan.stop:,.2f}: sales perdiendo ≈ ${abs(loss):,.0f} MXN.",
+        f"📈 Si sube a ${plan.target:,.2f}: sales ganando ≈ ${gain:,.0f} MXN.",
+        "<i>(ya con comisión, IVA y tipo de cambio; antes de ISR)</i>",
+    ]
+    if open_total is not None and open_total[0] > 0:
+        n, total = open_total
+        lines.append(f"Ya tienes {n} jugada(s) abierta(s) con ≈ ${total:,.0f} MXN; con esta serían "
+                     f"≈ ${total + amount:,.0f}.")
+    return lines
+
+
 def max_points(points_revenue: int = 1, points_guidance: int = 1) -> int:
     return 1 + points_revenue + points_guidance
 
 
 def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 3,
-                 source: tuple[str, str] | None = None) -> str:
+                 source: tuple[str, str] | None = None, cfg: Config | None = None,
+                 open_total: tuple[int, float] | None = None) -> str:
     """Alerta cuando un candidato ya pasó todos los filtros (incluido el volumen).
     `source` = (texto, url) de la noticia principal; si no hay, se usa la SEC."""
     d = ev.data
     a = ev.analysis
     lines = [
         f"🟢 <b>{escape(d.symbol)}</b> · {escape(d.name)}",
+        "",
+    ]
+    if cfg is not None:
+        lines += [*plain_lines(ev, plan, cfg.capital, cfg.costs, cfg.plan.max_holding_days,
+                               open_total), "", "<b>Los detalles</b>"]
+    lines += [
         f"<b>Catalizador:</b> {escape(catalyst(ev))}",
         *[escape(x) for x in summary_lines(ev)],
         "",
@@ -108,7 +153,7 @@ def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 
         + (f' · <a href="{escape(source[1])}">{escape(source[0])}</a>' if source else ""),
         "",
         f"⚠️ {SIC_NOTE}",
-        f"<i>{DISCLAIMER} {escape(fmt_mx(now))}</i>",
+        f"<i>{RISK_NOTE if cfg is not None else DISCLAIMER} {escape(fmt_mx(now))}</i>",
     ]
     return "\n".join(lines)
 
@@ -130,3 +175,42 @@ def format_pending(evs: list[Evaluation], session_day: date, now: datetime) -> s
                      f"ganancia {sp} vs. esperado · movido {mv}{conf}")
     lines += ["", f"<i>{escape(fmt_mx(now))}</i>"]
     return "\n".join(lines)
+
+
+def format_guide(cfg: Config) -> str:
+    """Explicación del bot en palabras sencillas (para fijarla en el chat)."""
+    c, p, f = cfg.capital, cfg.plan, cfg.filters
+    return "\n".join([
+        "📘 <b>Cómo funciona este bot</b>",
+        "",
+        "<b>La idea</b>",
+        "Cuando una empresa de EE. UU. reporta ganancias mucho mejores de lo esperado, su acción a "
+        "veces sigue subiendo durante unos días. El bot busca esos casos y te avisa.",
+        "",
+        "<b>Qué revisa antes de avisarte</b>",
+        f"1. Que haya ganado más de {cfg.strategy.eps_surprise_min_pct:.0f}% por encima de lo esperado.",
+        f"2. Que sea una empresa grande y fácil de comprar y vender (precio mayor a ${f.min_price:.0f}, "
+        "mucho volumen).",
+        f"3. Que no haya subido ya más de {f.max_gain_since_prev_close_pct:.0f}% (para no llegar tarde).",
+        f"4. Que hoy se esté negociando al menos {f.min_relative_volume:.0f} veces lo normal.",
+        "5. Que Claude lea las noticias y no encuentre letra chica (confianza 3 de 5 o más).",
+        "",
+        "<b>Los mensajes</b>",
+        "⏳ Pendientes: acciones a vigilar antes de abrir. No es señal.",
+        "🟢 Alerta: pasó todo. Trae cuánto meter (con tu regla), hasta cuándo, y cuánto ganarías o perderías.",
+        "✅/🔻 Cerré (simulada): cómo terminó una alerta.",
+        "📊 Reporte del domingo: cuánto habrías ganado o perdido, contra solo tener el S&P 500 (SPY).",
+        "",
+        "<b>Tu regla de monto (config.yaml)</b>",
+        f"Tope por jugada: ${c.tope_por_operacion_mxn:,.0f} MXN. Según la confianza de Claude: "
+        + ", ".join(f"{k} → ${c.monto(k):,.0f}" for k in sorted(c.pct_por_confianza, reverse=True))
+        + f"; sin lectura → ${c.monto(None):,.0f}.",
+        f"Salida: si baja {p.stop_loss_pct:.0f}%, si sube {p.take_profit_pct:.0f}%, "
+        f"o a los {p.max_holding_days} días de bolsa, lo que pase primero.",
+        "",
+        "<b>Importante</b>",
+        "• El bot no compra ni vende. Todo lo que registra es simulado.",
+        "• Todavía no está probado con datos pasados: úsalo para observar y aprender.",
+        f"• {SIC_NOTE}",
+        "• Todo es bajo tu propio riesgo. No es asesoría financiera.",
+    ])

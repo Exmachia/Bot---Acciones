@@ -40,7 +40,8 @@ def low_confidence(ev, cfg: Config) -> bool:
     return ev.analysis is not None and ev.analysis.confianza < cfg.llm.min_confidence
 
 
-def build_messages(res: ScanResult, cfg: Config, sent: set[str]) -> list[Outgoing]:
+def build_messages(res: ScanResult, cfg: Config, sent: set[str],
+                   open_total: tuple[int, float] | None = None) -> list[Outgoing]:
     day = res.active_day
     if day is None:
         return []
@@ -54,10 +55,14 @@ def build_messages(res: ScanResult, cfg: Config, sent: set[str]) -> list[Outgoin
         if key in sent:
             continue
         plan = make_plan(ev.data.price, day, cfg.plan, res.trading_days)
+        conf = ev.analysis.confianza if ev.analysis is not None else None
         trade = Trade(ev.data.symbol, ev.data.name, res.now, day, plan.entry, plan.stop,
-                      plan.target, plan.deadline, ev.score,
-                      ev.analysis.confianza if ev.analysis is not None else None)
-        out.append(Outgoing([key], format_alert(ev, plan, res.now, pts, source=ev.source), trade))
+                      plan.target, plan.deadline, ev.score, conf,
+                      monto_mxn=cfg.capital.monto(conf))
+        out.append(Outgoing([key], format_alert(ev, plan, res.now, pts, source=ev.source, cfg=cfg,
+                                               open_total=open_total), trade))
+        if open_total is not None:  # la siguiente alerta del mismo escaneo ya cuenta esta
+            open_total = (open_total[0] + 1, open_total[1] + trade.monto_mxn)
 
     if is_pre_open(res):
         new = [ev for ev in res.evaluations

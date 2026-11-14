@@ -70,10 +70,21 @@ python -m pytest                       # pruebas
 python -m pead_bot.cli scan --dry-run  # escanea e imprime por qué pasa o no cada candidato
 python -m pead_bot.cli scan            # igual, y además manda las alertas a Telegram
 python -m pead_bot.cli telegram-test   # manda una alerta de EJEMPLO para ver el formato
+python -m pead_bot.cli guia            # manda a Telegram la explicación del bot en palabras sencillas
 python -m pead_bot.cli track           # cierre diario (16:30 NY) de operaciones simuladas
 python -m pead_bot.cli report          # reporte semanal (domingo) con costos y contra SPY
 ```
 `track` y `report` aceptan `--dry-run` para imprimir sin mandar a Telegram.
+
+### Tu regla de monto (`capital` en config.yaml)
+Tope por jugada: **$10,000 MXN**. El monto sale de la confianza de Claude:
+5 → $10,000 · 4 → $7,500 · 3 → $5,000 · sin lectura de noticias → $5,000
+(con menos de 3 no hay alerta). Sin límite total: cada alerta trae su monto aunque haya
+otras abiertas, y te dice cuánto llevarías metido en total.
+
+Cada alerta empieza con **"En palabras sencillas"**: qué pasó, el monto, la fecha máxima
+y cuánto ganarías o perderías en pesos (ya con costos). Cada operación simulada guarda
+su monto y el reporte usa ese mismo monto. Todo es bajo tu propio riesgo.
 
 ### Qué manda a Telegram
 - ⏳ **Pendientes de confirmación** (antes de abrir): pasan todo menos el volumen

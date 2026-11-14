@@ -38,7 +38,16 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       objetivo el mismo día → stop; fecha límite → cierre), `tracking/daily.py` (día de
       entrada solo minutos tras la alerta; solo sesiones terminadas + 16 min),
       `tracking/report.py` (cierre y semanal vs. SPY mismos días sin costos; aviso < 20 ops).
-      Comandos `track` y `report` (con --dry-run). `report.notional_mxn` = 10,000.
+      Comandos `track` y `report` (con --dry-run).
+- [x] Extra: regla de monto elegida por el usuario (`capital`): tope 10,000 MXN por jugada,
+      % según confianza de Claude (5→100, 4→75, 3→50; sin lectura→50), sin límite total.
+      La alerta empieza con "En palabras sencillas" (qué pasó, monto, fecha máxima,
+      pérdida/ganancia en MXN con costos, total abierto) y cierra con "bajo tu propio riesgo".
+      Cada trade guarda `monto_mxn`; el reporte lo usa. Comando `guia` manda la explicación.
+- Pregunta pendiente del usuario: compra/venta automática. GBM no tiene API pública (no
+  automatizar con su usuario/contraseña). Si se quiere: después de la fase 5, ensayo con
+  órdenes paper en Alpaca; luego broker con API (IBKR/Alpaca live). Requiere que el usuario
+  cambie la regla "no compra ni vende" de arriba.
 - [ ] Fase 5: backtest 2 años; explicar look-ahead y supervivencia; decir claramente si no
       le gana a SPY después de costos. Pendiente confirmar historia del plan gratis de Finnhub.
 - [ ] Fase 6: GitHub Actions (repo público) con cron; costo mensual.

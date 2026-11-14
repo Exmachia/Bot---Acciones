@@ -156,3 +156,58 @@ def test_retries_on_rate_limit(monkeypatch):
     s = _Sess([_Resp(429, {"ok": False, "parameters": {"retry_after": 1}}), _Resp(200, {"ok": True})])
     TelegramClient("t", "1", session=s).send("x")
     assert len(s.calls) == 2
+
+
+# --- en palabras sencillas (monto según confianza, tope 10,000) ---------------
+from pead_bot.llm.news import NewsAnalysis  # noqa: E402
+from pead_bot.notify.format import format_guide  # noqa: E402
+
+
+def _with_conf(ev, conf):
+    ev.analysis = NewsAnalysis(resumen="r", sorpresa_real=True, letra_chica="", guia="igual",
+                               sentimiento="positivo", riesgos=[], confianza=conf)
+    return ev
+
+
+def test_amount_rule():
+    c = CFG.capital
+    assert [c.monto(k) for k in (5, 4, 3, None)] == [10_000, 7_500, 5_000, 5_000]
+
+
+def test_alert_plain_block_confidence_4():
+    plan = make_plan(104.0, date(2026, 11, 12), CFG.plan, DAYS)
+    txt = format_alert(_with_conf(_ev(), 4), plan, NOW, cfg=CFG, open_total=(1, 5_000))
+    for must in ["En palabras sencillas", "ganó 30% más de lo que esperaban",
+                 "Monto: $7,500 MXN</b> (confianza 4 de 5 → 75% de tu tope de $10,000)",
+                 "como máximo hasta el jue 19 nov (5 días de bolsa)",
+                 "sales perdiendo ≈ $455 MXN",      # 7,500 × −6.0655%
+                 "sales ganando ≈ $517 MXN",        # 7,500 × +6.8968%
+                 "Ya tienes 1 jugada(s) abierta(s) con ≈ $5,000 MXN; con esta serían ≈ $12,500",
+                 "bajo tu propio riesgo", "Los detalles"]:
+        assert must in txt, must
+    assert txt.index("En palabras sencillas") < txt.index("Catalizador")
+
+
+def test_alert_without_claude_uses_lowest_amount():
+    plan = make_plan(104.0, date(2026, 11, 12), CFG.plan, DAYS)
+    txt = format_alert(_ev(), plan, NOW, cfg=CFG, open_total=(0, 0))
+    assert "Monto: $5,000 MXN</b> (sin lectura de noticias → 50%" in txt
+    assert "jugada(s) abierta(s)" not in txt
+
+
+def test_trade_records_amount_and_running_total():
+    res = _premarket_result([])
+    res.now = datetime(2026, 11, 12, 12, 0, tzinfo=NY)
+    res.evaluations = [_with_conf(_ev("AAA"), 5), _with_conf(_ev("BBB"), 3)]
+    msgs = build_messages(res, CFG, set(), open_total=(0, 0.0))
+    assert msgs[0].trade.monto_mxn == 10_000 and msgs[1].trade.monto_mxn == 5_000
+    assert "con esta serían ≈ $15,000" in msgs[1].text
+
+
+def test_guide_explains_in_plain_words():
+    txt = format_guide(CFG)
+    for must in ["Cómo funciona este bot", "más de 10% por encima", "Tope por jugada: $10,000 MXN",
+                 "5 → $10,000, 4 → $7,500, 3 → $5,000", "sin lectura → $5,000",
+                 "si baja 5%, si sube 8%", "5 días de bolsa", "no compra ni vende",
+                 "bajo tu propio riesgo", SIC_NOTE]:
+        assert must in txt, must

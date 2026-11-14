@@ -50,8 +50,19 @@ class CostsCfg(BaseModel):
     isr_pct: float = 10
 
 
-class ReportCfg(BaseModel):
-    notional_mxn: float = 10_000
+class CapitalCfg(BaseModel):
+    """Regla de monto que eligió el usuario: % de su tope según la confianza de Claude."""
+    tope_por_operacion_mxn: float = 10_000
+    pct_por_confianza: dict[int, float] = Field(default_factory=lambda: {5: 100, 4: 75, 3: 50})
+    pct_sin_lectura: float = 50  # si Claude no pudo leer noticias: lo más bajo
+
+    def pct(self, confianza: int | None) -> float:
+        if confianza is None:
+            return self.pct_sin_lectura
+        return self.pct_por_confianza.get(confianza, min(self.pct_por_confianza.values()))
+
+    def monto(self, confianza: int | None) -> float:
+        return round(self.tope_por_operacion_mxn * self.pct(confianza) / 100, 2)
 
 
 class ScheduleCfg(BaseModel):
@@ -68,7 +79,7 @@ class Config(BaseModel):
     llm: LlmCfg = Field(default_factory=LlmCfg)
     costs: CostsCfg = Field(default_factory=CostsCfg)
     schedule: ScheduleCfg = Field(default_factory=ScheduleCfg)
-    report: ReportCfg = Field(default_factory=ReportCfg)
+    capital: CapitalCfg = Field(default_factory=CapitalCfg)
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:

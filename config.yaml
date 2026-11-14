@@ -36,8 +36,13 @@ costs:                          # se aplican en reporte y backtest
   fx_spread_pct: 0.5            # costo de tipo de cambio (ida y vuelta)
   isr_pct: 10                   # ISR sobre ganancia neta (SIC)
 
-report:
-  notional_mxn: 10000           # pesos simulados por operación (para traducir % a pesos)
+capital:                        # TU regla de monto: el bot solo aplica la cuenta
+  tope_por_operacion_mxn: 10000 # lo máximo que metes en una sola jugada
+  pct_por_confianza:            # % del tope según la confianza de Claude (1 a 5)
+    5: 100                      # → 10,000 MXN
+    4: 75                       # →  7,500 MXN
+    3: 50                       # →  5,000 MXN (con menos de 3 no se manda alerta)
+  pct_sin_lectura: 50           # si Claude no pudo leer noticias → 5,000 MXN
 
 schedule:
   premarket_scan_ny: "08:30"    # hora de Nueva York

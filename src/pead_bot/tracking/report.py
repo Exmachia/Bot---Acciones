@@ -1,6 +1,7 @@
 """Mensajes de cierre y reporte semanal (domingo), con costos y contra SPY.
 
-Cada operación se mide como si hubieras puesto `notional_mxn` pesos en ella.
+Cada operación se mide con el monto que dijo su alerta (`monto_mxn`); si no lo
+tiene (operaciones viejas), con el monto por defecto que se pase.
 SPY se mide en los MISMOS días que cada operación y sin costos: es la vara
 "¿me habría ido mejor solo teniendo el índice?".
 """
@@ -25,8 +26,13 @@ def mxn(x: float) -> str:
     return f"{sign}${abs(x):,.0f} MXN"
 
 
-def format_closed(c: Closed, notional: float) -> str:
+def amount_of(t: Trade, default: float) -> float:
+    return t.monto_mxn if t.monto_mxn else default
+
+
+def format_closed(c: Closed, default_amount: float) -> str:
     t, e, k = c.trade, c.exit, c.cost
+    notional = amount_of(t, default_amount)
     icon = "✅" if k.net_pct > 0 else "🔻"
     lines = [
         f"{icon} <b>Cerré (simulada) {escape(t.symbol)}</b> · {_REASON.get(e.reason, e.reason)}",
@@ -53,11 +59,12 @@ class Summary:
         return self.net_pnl - self.tax
 
 
-def summarize(trades: list[Trade], costs: CostsCfg, notional: float) -> Summary:
+def summarize(trades: list[Trade], costs: CostsCfg, default_amount: float) -> Summary:
     net = spy = 0.0
     wins = known = 0
     for t in trades:
         k = trade_cost(t.entry, t.exit_price, costs)
+        notional = amount_of(t, default_amount)
         net += k.pnl(notional)
         wins += k.net_pct > 0
         sp = spy_window_pct(t.spy_entry, t.spy_exit)
@@ -84,24 +91,25 @@ def _summary_lines(title: str, s: Summary) -> list[str]:
 
 
 def format_weekly(week: list[Trade], all_closed: list[Trade], open_: list[Trade],
-                  today: date, costs: CostsCfg, notional: float) -> str:
+                  today: date, costs: CostsCfg, default_amount: float) -> str:
     lines = [
         f"📊 <b>Reporte semanal · {fmt_date(today - timedelta(days=6))} a {fmt_date(today)}</b>",
-        f"<i>Simulado, como si pusieras ${notional:,.0f} MXN en cada operación.</i>",
+        "<i>Simulado, con el monto que dio cada alerta según tu regla.</i>",
         "",
     ]
     for t in week:
         k = trade_cost(t.entry, t.exit_price, costs)
-        lines.append(f"• {escape(t.symbol)}: {k.net_pct:+.1f}% neto ({_REASON.get(t.exit_reason, '')})")
+        lines.append(f"• {escape(t.symbol)}: {k.net_pct:+.1f}% neto = "
+                     f"{mxn(k.pnl(amount_of(t, default_amount)))} ({_REASON.get(t.exit_reason, '')})")
     if week:
         lines.append("")
-    lines += _summary_lines("Esta semana", summarize(week, costs, notional)) + [""]
-    total = summarize(all_closed, costs, notional)
+    lines += _summary_lines("Esta semana", summarize(week, costs, default_amount)) + [""]
+    total = summarize(all_closed, costs, default_amount)
     lines += _summary_lines("Desde el inicio", total) + [""]
     if open_:
         lines.append(f"<b>Abiertas ({len(open_)})</b>")
         for t in open_:
-            lines.append(f"• {escape(t.symbol)}: entrada ${t.entry:,.2f} · stop ${t.stop:,.2f} · "
+            lines.append(f"• {escape(t.symbol)} (${amount_of(t, default_amount):,.0f}): entrada ${t.entry:,.2f} · stop ${t.stop:,.2f} · "
                          f"objetivo ${t.target:,.2f} · límite {fmt_date(t.deadline)}")
         lines.append("")
     lines.append(f"Costos: cada operación necesita subir ~{breakeven_move_pct(costs):.1f}% solo para "

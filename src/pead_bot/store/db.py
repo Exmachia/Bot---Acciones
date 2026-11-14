@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_price  REAL,
     exit_reason TEXT,
     spy_exit    REAL,
+    monto_mxn   REAL,                   -- pesos que dijo la alerta (regla de config.yaml)
     UNIQUE(symbol, entry_date)
 );
 """
@@ -52,6 +53,7 @@ class Trade:
     exit_price: float | None = None
     exit_reason: str | None = None
     spy_exit: float | None = None
+    monto_mxn: float | None = None
     id: int | None = None
 
 
@@ -75,6 +77,16 @@ class TradeStore:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(trades)")}
+        if "monto_mxn" not in cols:  # bases creadas antes de guardar el monto
+            self.conn.execute("ALTER TABLE trades ADD COLUMN monto_mxn REAL")
+            self.conn.commit()
+
+    def open_total(self) -> tuple[int, float]:
+        """(cuántas abiertas, pesos metidos en ellas)."""
+        r = self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(monto_mxn), 0) FROM trades WHERE status='open'").fetchone()
+        return int(r[0]), float(r[1])
 
     def add(self, t: Trade) -> bool:
         """False si ya existía (misma acción, mismo día)."""

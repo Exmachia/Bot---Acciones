@@ -2,6 +2,7 @@
   python -m pead_bot.cli scan --dry-run   # imprime candidatos y los mensajes que mandaría
   python -m pead_bot.cli scan             # además manda las alertas a Telegram
   python -m pead_bot.cli telegram-test    # manda una alerta de EJEMPLO para ver el formato
+  python -m pead_bot.cli guia             # manda la explicación del bot en palabras sencillas
   python -m pead_bot.cli track            # cierre diario de operaciones simuladas
   python -m pead_bot.cli report           # reporte semanal con costos y contra SPY
 """
@@ -66,7 +67,7 @@ def _send(res, cfg, tg, ap=None) -> int:
     from .notify.dispatch import SentStore, build_messages
     store = SentStore(ROOT / "data" / "cache" / "sent.json")
     sent = store.load()
-    msgs = build_messages(res, cfg, sent)
+    msgs = build_messages(res, cfg, sent, open_total=_store().open_total())
     if not msgs:
         print("\nMensajes a Telegram: ninguno nuevo.")
         return 0
@@ -107,11 +108,29 @@ def cmd_telegram_test(args) -> int:
                       eps_actual=1.30, eps_estimate=1.00, revenue_actual=2.4e9, revenue_estimate=2.2e9,
                       price=104.0, base_close=100.0, avg_volume=3e6, market_cap=25e9, rvol=3.1)
     ev = evaluate(d, cfg.strategy, cfg.filters)
+    from .llm.news import NewsAnalysis
+    ev.analysis = NewsAnalysis(
+        resumen="Vendió más de lo esperado en todas sus divisiones.\nSubió su pronóstico del año.",
+        sorpresa_real=True, letra_chica="", guia="subio", sentimiento="positivo",
+        riesgos=["Mucha competencia en su mercado"], confianza=4)
     days = [now.date() + timedelta(days=i) for i in range(1, 15)
             if (now.date() + timedelta(days=i)).weekday() < 5]
     plan = make_plan(d.price, now.date(), cfg.plan, days)
-    tg.send("🧪 <b>EJEMPLO</b> (datos inventados, no es una señal):\n\n" + format_alert(ev, plan, now))
+    tg.send("🧪 <b>EJEMPLO</b> (datos inventados, no es una señal):\n\n"
+            + format_alert(ev, plan, now, cfg=cfg, open_total=(1, 5000.0)))
     print("Mandé la alerta de ejemplo. Revisa Telegram.")
+    return 0
+
+
+def cmd_guide(args) -> int:
+    """Manda a Telegram la explicación del bot en palabras sencillas."""
+    from .notify.format import format_guide
+    cfg = load_config(args.config)
+    txt = format_guide(cfg)
+    print(txt)
+    if not args.dry_run:
+        _telegram().send(txt)
+        print("\nMandé la guía a Telegram.")
     return 0
 
 
@@ -131,7 +150,7 @@ def cmd_track(args) -> int:
     closed = track(store, ap, cal, now, cfg.costs)
     print(f"Abiertas que siguen: {len(store.open_trades())} · cerradas hoy: {len(closed)}")
     for c in closed:
-        txt = format_closed(c, cfg.report.notional_mxn)
+        txt = format_closed(c, cfg.capital.tope_por_operacion_mxn)
         print("\n" + txt)
         if tg:
             tg.send(txt)
@@ -149,7 +168,7 @@ def cmd_report(args) -> int:
     store = _store()
     today = datetime.now(NY).date()
     txt = format_weekly(store.closed_between(today - timedelta(days=6), today), store.all_closed(),
-                        store.open_trades(), today, cfg.costs, cfg.report.notional_mxn)
+                        store.open_trades(), today, cfg.costs, cfg.capital.tope_por_operacion_mxn)
     print(txt)
     if tg:
         tg.send(txt)
@@ -187,6 +206,9 @@ def main(argv=None) -> int:
     sc.set_defaults(func=cmd_scan)
     tt = sub.add_parser("telegram-test", help="Manda una alerta de ejemplo a Telegram")
     tt.set_defaults(func=cmd_telegram_test)
+    gd = sub.add_parser("guia", help="Manda la explicación del bot a Telegram")
+    gd.add_argument("--dry-run", action="store_true", help="Solo imprime")
+    gd.set_defaults(func=cmd_guide)
     tr = sub.add_parser("track", help="Cierre diario de operaciones simuladas")
     tr.add_argument("--dry-run", action="store_true", help="No manda nada a Telegram")
     tr.set_defaults(func=cmd_track)
