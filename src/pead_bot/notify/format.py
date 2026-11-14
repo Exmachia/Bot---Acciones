@@ -35,125 +35,94 @@ def source_url(symbol: str) -> str:
             f"&CIK={symbol}&type=8-K&dateb=&owner=include&count=10")
 
 
-def catalyst(ev: Evaluation) -> str:
-    d = ev.data
-    when = _HOUR.get((d.hour or "").lower(), "hora no informada")
-    return f"Resultados trimestrales ({fmt_date(d.report_date)}, {when})"
+_GUIA = {"subio": "la subió ✅", "igual": "sin cambios", "bajo": "la bajó ⚠️", "sin_dato": "no la menciona"}
+SEP = "━━━━━━━━━━━━━━━"
 
-
-def summary_lines(ev: Evaluation) -> list[str]:
-    """Resumen de 2 líneas con los números del reporte."""
-    d = ev.data
-    l1 = f"Ganó ${d.eps_actual:.2f} por acción vs. ${d.eps_estimate:.2f} esperado"
-    if ev.eps_surprise is not None:
-        l1 += f" ({ev.eps_surprise:+.0f}%)"
-    l1 += "."
-    if d.revenue_actual is None or d.revenue_estimate is None:
-        l2 = "Ventas: sin dato del estimado."
-    else:
-        verdict = "superó" if d.revenue_actual > d.revenue_estimate else "no superó"
-        l2 = (f"Ventas: {fmt_money(d.revenue_actual)} vs. {fmt_money(d.revenue_estimate)} "
-              f"esperado ({verdict}).")
-    return [l1, l2]
-
-
-_GUIA = {"subio": "la subió ✅", "igual": "sin cambios", "bajo": "la bajó ⚠️", "sin_dato": "no se menciona"}
-
-
-def analysis_lines(a) -> list[str]:
-    """Bloque con la lectura de noticias de Claude (fase 3)."""
-    lines = ["<b>Lectura de noticias (Claude)</b>", escape(a.resumen.strip())]
-    lines.append("Sorpresa: " + ("viene del negocio ✅" if a.sorpresa_real
-                                 else "parece de una sola vez ⚠️"))
-    if a.letra_chica.strip():
-        lines.append(f"Letra chica: {escape(a.letra_chica.strip())}")
-    lines.append(f"Pronóstico de la empresa (guía): {_GUIA.get(a.guia, a.guia)}")
-    for r in a.riesgos:
-        lines.append(f"• Riesgo: {escape(r)}")
-    return lines
-
-
-RISK_NOTE = ("Monto calculado con tu regla de config.yaml. Es bajo tu propio riesgo y no es "
-             "asesoría financiera. La estrategia todavía no está probada con datos pasados.")
-
-
-def plain_lines(ev: Evaluation, plan: TradePlan, capital: CapitalCfg, costs: CostsCfg,
-                holding_days: int, open_total: tuple[int, float] | None = None) -> list[str]:
-    """Resumen para principiantes: qué pasó, cuánto (según TU regla) y por cuánto tiempo."""
-    from ..tracking.costs import trade_cost
-    d = ev.data
-    conf = ev.analysis.confianza if ev.analysis is not None else None
-    amount = capital.monto(conf)
-    pct = capital.pct(conf)
-    why = (f"confianza {conf} de 5 → {pct:.0f}% de tu tope de ${capital.tope_por_operacion_mxn:,.0f}"
-           if conf is not None else
-           f"sin lectura de noticias → {pct:.0f}% de tu tope de ${capital.tope_por_operacion_mxn:,.0f}")
-    loss = trade_cost(plan.entry, plan.stop, costs).pnl(amount)
-    gain = trade_cost(plan.entry, plan.target, costs).pnl(amount)
-    sp = f"{ev.eps_surprise:.0f}%" if ev.eps_surprise is not None else "más"
-    moved = f"{ev.gain_pct:+.1f}%" if ev.gain_pct is not None else "poco"
-    lines = [
-        "<b>En palabras sencillas</b>",
-        f"{escape(d.name)} ganó {sp} más de lo que esperaban los analistas y su acción solo se ha "
-        f"movido {moved}. Cuando pasa esto, a veces la acción sigue subiendo unos días.",
-        f"💵 <b>Monto: ${amount:,.0f} MXN</b> ({why}).",
-        f"⏱️ Tiempo: como máximo hasta el {fmt_date(plan.deadline)} ({holding_days} días de bolsa); "
-        "puede terminar antes.",
-        f"📉 Si baja a ${plan.stop:,.2f}: sales perdiendo ≈ ${abs(loss):,.0f} MXN.",
-        f"📈 Si sube a ${plan.target:,.2f}: sales ganando ≈ ${gain:,.0f} MXN.",
-        "<i>(ya con comisión, IVA y tipo de cambio; antes de ISR)</i>",
-    ]
-    if open_total is not None and open_total[0] > 0:
-        n, total = open_total
-        lines.append(f"Ya tienes {n} jugada(s) abierta(s) con ≈ ${total:,.0f} MXN; con esta serían "
-                     f"≈ ${total + amount:,.0f}.")
-    return lines
+RISK_NOTE = "Monto según tu regla de config.yaml. Bajo tu propio riesgo; no es asesoría financiera."
 
 
 def max_points(points_revenue: int = 1, points_guidance: int = 1) -> int:
     return 1 + points_revenue + points_guidance
 
 
+def play_lines(ev: Evaluation, plan: TradePlan, capital: CapitalCfg, costs: CostsCfg,
+               holding_days: int, open_total: tuple[int, float] | None = None) -> list[str]:
+    """La jugada: cuánto (según TU regla), a qué precios y hasta cuándo."""
+    from ..tracking.costs import trade_cost
+    conf = ev.analysis.confianza if ev.analysis is not None else None
+    amount = capital.monto(conf)
+    loss = trade_cost(plan.entry, plan.stop, costs).pnl(amount)
+    gain = trade_cost(plan.entry, plan.target, costs).pnl(amount)
+    why = f"confianza {conf}/5" if conf is not None else "sin lectura de noticias"
+    stop_pct = (plan.stop / plan.entry - 1) * 100
+    tgt_pct = (plan.target / plan.entry - 1) * 100
+    lines = [
+        "🎯 <b>LA JUGADA</b>",
+        f"💵 <b>${amount:,.0f} MXN</b> · {why}",
+        f"🛒 Entrada ${plan.entry:,.2f}",
+        f"🛑 Stop ${plan.stop:,.2f} ({stop_pct:+.0f}%) → pierdes ≈ ${abs(loss):,.0f}",
+        f"✅ Objetivo ${plan.target:,.2f} ({tgt_pct:+.0f}%) → ganas ≈ ${gain:,.0f}",
+        f"⏱️ Máximo hasta el {fmt_date(plan.deadline)} ({holding_days} días de bolsa)",
+    ]
+    if open_total is not None and open_total[0] > 0:
+        n, total = open_total
+        lines.append(f"📂 Abiertas: {n} (≈ ${total:,.0f}) → con esta ≈ ${total + amount:,.0f}")
+    lines.append("<i>Montos con comisión, IVA y tipo de cambio; antes de ISR.</i>")
+    return lines
+
+
+def what_happened_lines(ev: Evaluation) -> list[str]:
+    d = ev.data
+    sp = f" ({ev.eps_surprise:+.0f}%)" if ev.eps_surprise is not None else ""
+    lines = ["📰 <b>QUÉ PASÓ</b>",
+             f"Ganó ${d.eps_actual:.2f} por acción vs. ${d.eps_estimate:.2f} esperado{sp}"]
+    if d.revenue_actual is not None and d.revenue_estimate is not None:
+        ok = "superó ✅" if d.revenue_actual > d.revenue_estimate else "no superó ⚠️"
+        lines.append(f"Ventas {fmt_money(d.revenue_actual)} vs. {fmt_money(d.revenue_estimate)} · {ok}")
+    when = _HOUR.get((d.hour or "").lower(), "hora no informada")
+    moved = f"{ev.gain_pct:+.1f}%" if ev.gain_pct is not None else "s/d"
+    vol = f" · volumen {d.rvol:.1f}x" if d.rvol is not None else ""
+    lines.append(f"Reportó {fmt_date(d.report_date)} {when} · lleva {moved}{vol}")
+    return lines
+
+
+def analysis_lines(a) -> list[str]:
+    """Lectura de noticias de Claude (fase 3), corta."""
+    lines = ["🤖 <b>CLAUDE</b>", escape(a.resumen.strip())]
+    surprise = "viene del negocio ✅" if a.sorpresa_real else "parece de una sola vez ⚠️"
+    lines.append(f"Sorpresa {surprise} · guía {_GUIA.get(a.guia, a.guia)}")
+    if a.letra_chica.strip():
+        lines.append(f"🔎 Letra chica: {escape(a.letra_chica.strip())}")
+    risks = [r.strip() for r in a.riesgos if r.strip()]
+    if risks:
+        lines.append("⚠️ Riesgos: " + "; ".join(escape(r) for r in risks))
+    return lines
+
+
 def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 3,
                  source: tuple[str, str] | None = None, cfg: Config | None = None,
                  open_total: tuple[int, float] | None = None) -> str:
     """Alerta cuando un candidato ya pasó todos los filtros (incluido el volumen).
-    `source` = (texto, url) de la noticia principal; si no hay, se usa la SEC."""
+    `source` = (texto, url) de la noticia principal; siempre va también la SEC."""
+    cfg = cfg or Config()
     d = ev.data
-    a = ev.analysis
+    links = f'<a href="{escape(source_url(d.symbol))}">SEC</a>'
+    if source:
+        links += f' · <a href="{escape(source[1])}">{escape(source[0])}</a>'
     lines = [
         f"🟢 <b>{escape(d.symbol)}</b> · {escape(d.name)}",
-        "",
+        SEP,
+        *play_lines(ev, plan, cfg.capital, cfg.costs, cfg.plan.max_holding_days, open_total),
+        SEP,
+        *what_happened_lines(ev),
     ]
-    if cfg is not None:
-        lines += [*plain_lines(ev, plan, cfg.capital, cfg.costs, cfg.plan.max_holding_days,
-                               open_total), "", "<b>Los detalles</b>"]
+    if ev.analysis is not None:
+        lines += [SEP, *analysis_lines(ev.analysis)]
     lines += [
-        f"<b>Catalizador:</b> {escape(catalyst(ev))}",
-        *[escape(x) for x in summary_lines(ev)],
-        "",
-    ]
-    if a is not None:
-        lines += [*analysis_lines(a), ""]
-    moved = f"{ev.gain_pct:+.1f}%" if ev.gain_pct is not None else "s/d"
-    lines.append(f"<b>Se ha movido:</b> {moved} desde el cierre previo al reporte")
-    if d.rvol is not None:
-        lines.append(f"<b>Volumen:</b> {d.rvol:.1f}x lo normal a esta hora (hasta hace 16 min)")
-    lines += [
-        "",
-        "<b>Plan</b>",
-        f"Entrada: ${plan.entry:,.2f}",
-        f"Stop: ${plan.stop:,.2f} ({(plan.stop / plan.entry - 1) * 100:+.0f}%)",
-        f"Objetivo: ${plan.target:,.2f} ({(plan.target / plan.entry - 1) * 100:+.0f}%)",
-        f"Fecha límite: {fmt_date(plan.deadline)} (si no tocó stop ni objetivo, se sale)",
-        "",
-        f"<b>Confianza:</b> " + (f"{a.confianza} de 5 (Claude) · " if a is not None
-                                 else "sin lectura de noticias · ") + f"{ev.score} de {max_pts} puntos",
-        f'<a href="{escape(source_url(d.symbol))}">Ver reporte en la SEC</a>'
-        + (f' · <a href="{escape(source[1])}">{escape(source[0])}</a>' if source else ""),
-        "",
-        f"⚠️ {SIC_NOTE}",
-        f"<i>{RISK_NOTE if cfg is not None else DISCLAIMER} {escape(fmt_mx(now))}</i>",
+        SEP,
+        f"Puntos {ev.score}/{max_pts} · {links}",
+        f"📌 {SIC_NOTE}",
+        f"<i>{RISK_NOTE} {escape(fmt_mx(now))}</i>",
     ]
     return "\n".join(lines)
 
@@ -198,6 +167,7 @@ def format_guide(cfg: Config) -> str:
         "<b>Los mensajes</b>",
         "⏳ Pendientes: acciones a vigilar antes de abrir. No es señal.",
         "🟢 Alerta: pasó todo. Trae cuánto meter (con tu regla), hasta cuándo, y cuánto ganarías o perderías.",
+        "   Toca ✅ Voy o ❌ Paso. Si vas, te escribo cuándo venderla: 🛑 stop, ✅ objetivo o ⏱️ último día.",
         "✅/🔻 Cerré (simulada): cómo terminó una alerta.",
         "📊 Reporte del domingo: cuánto habrías ganado o perdido, contra solo tener el S&P 500 (SPY).",
         "",

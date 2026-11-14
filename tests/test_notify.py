@@ -38,14 +38,16 @@ def test_alert_has_everything():
     plan = make_plan(104.0, date(2026, 11, 12), CFG.plan, DAYS)
     txt = format_alert(ev, plan, NOW)
     for must in ["<b>ACME</b>", "Acme &amp; &lt;Co&gt;",          # nombre escapado para HTML
-                 "Resultados trimestrales (mié 11 nov, después del cierre)",
-                 "Ganó $1.30 por acción vs. $1.00 esperado (+30%).",
-                 "Ventas: $2.4 mil M vs. $2.2 mil M esperado (superó).",
-                 "+4.0% desde el cierre previo", "3.0x lo normal",
-                 "Entrada: $104.00", "Stop: $98.80 (-5%)", "Objetivo: $112.32 (+8%)",
-                 "Fecha límite: jue 19 nov", "Confianza:</b> sin lectura de noticias · 2 de 3 puntos",
-                 "sec.gov", "CIK=ACME", SIC_NOTE, "No es asesoría"]:
+                 "LA JUGADA", "QUÉ PASÓ",
+                 "Ganó $1.30 por acción vs. $1.00 esperado (+30%)",
+                 "Ventas $2.4 mil M vs. $2.2 mil M · superó",
+                 "Reportó mié 11 nov después del cierre · lleva +4.0% · volumen 3.0x",
+                 "Entrada $104.00", "Stop $98.80 (-5%)", "Objetivo $112.32 (+8%)",
+                 "Máximo hasta el jue 19 nov", "Puntos 2/3",
+                 "sec.gov", "CIK=ACME", SIC_NOTE, "no es asesoría"]:
         assert must in txt, must
+    assert txt.count("━━━") >= 3                         # bloques separados
+    assert txt.index("LA JUGADA") < txt.index("QUÉ PASÓ")
 
 
 def test_pending_list():
@@ -174,25 +176,24 @@ def test_amount_rule():
     assert [c.monto(k) for k in (5, 4, 3, None)] == [10_000, 7_500, 5_000, 5_000]
 
 
-def test_alert_plain_block_confidence_4():
+def test_alert_play_block_confidence_4():
     plan = make_plan(104.0, date(2026, 11, 12), CFG.plan, DAYS)
     txt = format_alert(_with_conf(_ev(), 4), plan, NOW, cfg=CFG, open_total=(1, 5_000))
-    for must in ["En palabras sencillas", "ganó 30% más de lo que esperaban",
-                 "Monto: $7,500 MXN</b> (confianza 4 de 5 → 75% de tu tope de $10,000)",
-                 "como máximo hasta el jue 19 nov (5 días de bolsa)",
-                 "sales perdiendo ≈ $455 MXN",      # 7,500 × −6.0655%
-                 "sales ganando ≈ $517 MXN",        # 7,500 × +6.8968%
-                 "Ya tienes 1 jugada(s) abierta(s) con ≈ $5,000 MXN; con esta serían ≈ $12,500",
-                 "bajo tu propio riesgo", "Los detalles"]:
+    for must in ["💵 <b>$7,500 MXN</b> · confianza 4/5",
+                 "→ pierdes ≈ $455",                 # 7,500 × −6.0655%
+                 "→ ganas ≈ $517",                   # 7,500 × +6.8968%
+                 "Máximo hasta el jue 19 nov (5 días de bolsa)",
+                 "📂 Abiertas: 1 (≈ $5,000) → con esta ≈ $12,500",
+                 "Bajo tu propio riesgo", "CLAUDE"]:
         assert must in txt, must
-    assert txt.index("En palabras sencillas") < txt.index("Catalizador")
+    assert "En palabras sencillas" not in txt
 
 
 def test_alert_without_claude_uses_lowest_amount():
     plan = make_plan(104.0, date(2026, 11, 12), CFG.plan, DAYS)
     txt = format_alert(_ev(), plan, NOW, cfg=CFG, open_total=(0, 0))
-    assert "Monto: $5,000 MXN</b> (sin lectura de noticias → 50%" in txt
-    assert "jugada(s) abierta(s)" not in txt
+    assert "💵 <b>$5,000 MXN</b> · sin lectura de noticias" in txt
+    assert "Abiertas" not in txt and "CLAUDE" not in txt
 
 
 def test_trade_records_amount_and_running_total():
@@ -201,7 +202,7 @@ def test_trade_records_amount_and_running_total():
     res.evaluations = [_with_conf(_ev("AAA"), 5), _with_conf(_ev("BBB"), 3)]
     msgs = build_messages(res, CFG, set(), open_total=(0, 0.0))
     assert msgs[0].trade.monto_mxn == 10_000 and msgs[1].trade.monto_mxn == 5_000
-    assert "con esta serían ≈ $15,000" in msgs[1].text
+    assert "con esta ≈ $15,000" in msgs[1].text
 
 
 def test_guide_explains_in_plain_words():

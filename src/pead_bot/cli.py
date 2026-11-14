@@ -2,9 +2,12 @@
   python -m pead_bot.cli scan --dry-run   # imprime candidatos y los mensajes que mandaría
   python -m pead_bot.cli scan             # además manda las alertas a Telegram
   python -m pead_bot.cli telegram-test    # manda una alerta de EJEMPLO para ver el formato
+  python -m pead_bot.cli inbox            # lee tus toques de ✅ Voy / ❌ Paso
+  python -m pead_bot.cli listen           # escucha y contesta tus botones al instante
   python -m pead_bot.cli guia             # manda la explicación del bot en palabras sencillas
   python -m pead_bot.cli track            # cierre diario de operaciones simuladas
   python -m pead_bot.cli report           # reporte semanal con costos y contra SPY
+  python -m pead_bot.cli backtest         # prueba la estrategia con 1 año de datos pasados
 """
 from __future__ import annotations
 
@@ -30,15 +33,81 @@ def _telegram():
     return TelegramClient(require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID"))
 
 
+def _inbox(tg) -> None:
+    """Lee tus toques de ✅ Voy / ❌ Paso."""
+    import os
+
+    from .config import ROOT
+    from .notify.decisions import process_updates
+    log = process_updates(tg, _store(), os.environ["TELEGRAM_CHAT_ID"],
+                          ROOT / "data" / "cache" / "telegram_state.json")
+    if log:
+        print("Respuestas leídas: " + ", ".join(log))
+
+
+def _watch(tg, cfg, ap, session) -> None:
+    """Avisos de venta para las jugadas en las que dijiste 'voy'."""
+    from datetime import datetime
+
+    from .notify.decisions import watch_taken
+    from .schedule import NY
+    store = _store()
+    taken = store.taken()
+    if not taken:
+        return
+    prices = {}
+    open_syms = sorted({t.symbol for t in taken if t.status == "open"})
+    if open_syms and ap is not None and session is not None:
+        prices = ap.latest_prices(open_syms)
+    for n in watch_taken(taken, prices, datetime.now(NY), session, cfg.costs):
+        tg.send(n.text)
+        store.add_notice(n.trade.id, n.kind)
+        print(f"Aviso de venta: {n.trade.symbol} ({n.kind})")
+
+
+def cmd_listen(args) -> int:
+    """Escucha tus toques y contesta al instante durante N minutos (Ctrl+C para salir)."""
+    import os
+    import time
+
+    from .config import ROOT
+    from .notify.decisions import process_updates
+    load_config(args.config)
+    tg = _telegram()
+    until = time.monotonic() + args.minutos * 60
+    print(f"Escuchando botones {args.minutos} min… (Ctrl+C para salir)")
+    try:
+        while time.monotonic() < until:
+            wait = int(max(1, min(50, until - time.monotonic())))
+            for line in process_updates(tg, _store(), os.environ["TELEGRAM_CHAT_ID"],
+                                        ROOT / "data" / "cache" / "telegram_state.json", wait=wait):
+                print("Respuesta:", line)
+    except KeyboardInterrupt:
+        print("\nListo, dejé de escuchar.")
+    return 0
+
+
+def cmd_inbox(args) -> int:
+    """Solo lee tus toques de botones (útil mientras el bot no corre solo)."""
+    load_config(args.config)
+    _inbox(_telegram())
+    return 0
+
+
 def cmd_scan(args) -> int:
     from .scanner import run_scan
     cfg = load_config(args.config)
     tg = None if args.dry_run else _telegram()  # falla antes de escanear si falta una llave
+    if tg:
+        _inbox(tg)
     fh, ap = _clients()
     res = run_scan(cfg, fh, ap)
     _read_news(res, cfg, ap)
     _print_scan(res, cfg)
-    return _send(res, cfg, tg, ap)
+    rc = _send(res, cfg, tg, ap)
+    if tg:
+        _watch(tg, cfg, ap, res.session)
+    return rc
 
 
 def _read_news(res, cfg, ap) -> None:
@@ -83,8 +152,9 @@ def _send(res, cfg, tg, ap=None) -> int:
             spy = ap.latest_prices(["SPY"]).get("SPY")
         except Exception:  # noqa: BLE001 — sin SPY la operación igual se registra
             spy = None
+    from .notify.decisions import alert_buttons
     for m in msgs:
-        tg.send(m.text)
+        tg.send(m.text, buttons=alert_buttons(m.trade.symbol, m.trade.entry_date) if m.trade else None)
         sent.update(m.keys)
         store.save(sent, res.now.date())  # guarda después de cada uno por si el siguiente falla
         if m.trade is not None:
@@ -106,7 +176,8 @@ def cmd_telegram_test(args) -> int:
     now = datetime.now(NY)
     d = CandidateData("EJEM", "Empresa de Ejemplo Inc", now.date() - timedelta(days=1), "amc",
                       eps_actual=1.30, eps_estimate=1.00, revenue_actual=2.4e9, revenue_estimate=2.2e9,
-                      price=104.0, base_close=100.0, avg_volume=3e6, market_cap=25e9, rvol=3.1)
+                      price=104.0, base_close=100.0, avg_volume=3e6, market_cap=25e9, rvol=3.1,
+                      guidance_raised=True)
     ev = evaluate(d, cfg.strategy, cfg.filters)
     from .llm.news import NewsAnalysis
     ev.analysis = NewsAnalysis(
@@ -116,9 +187,11 @@ def cmd_telegram_test(args) -> int:
     days = [now.date() + timedelta(days=i) for i in range(1, 15)
             if (now.date() + timedelta(days=i)).weekday() < 5]
     plan = make_plan(d.price, now.date(), cfg.plan, days)
+    from .notify.decisions import alert_buttons
     tg.send("🧪 <b>EJEMPLO</b> (datos inventados, no es una señal):\n\n"
-            + format_alert(ev, plan, now, cfg=cfg, open_total=(1, 5000.0)))
-    print("Mandé la alerta de ejemplo. Revisa Telegram.")
+            + format_alert(ev, plan, now, cfg=cfg, open_total=(1, 5000.0)),
+            buttons=alert_buttons("EJEM", now.date()))
+    print("Mandé la alerta de ejemplo. Toca ✅ Voy o ❌ Paso y luego corre: inbox")
     return 0
 
 
@@ -143,6 +216,8 @@ def cmd_track(args) -> int:
     from .tracking.report import format_closed
     cfg = load_config(args.config)
     tg = None if args.dry_run else _telegram()
+    if tg:
+        _inbox(tg)
     _, ap = _clients()
     store = _store()
     now = datetime.now(NY)
@@ -154,6 +229,8 @@ def cmd_track(args) -> int:
         print("\n" + txt)
         if tg:
             tg.send(txt)
+    if tg:
+        _watch(tg, cfg, ap, None)  # avisa de tus jugadas que terminaron con el cierre
     return 0
 
 
@@ -173,6 +250,26 @@ def cmd_report(args) -> int:
     if tg:
         tg.send(txt)
         print("\nMandé el reporte a Telegram.")
+    return 0
+
+
+def cmd_backtest(args) -> int:
+    """Fase 5: backtest de 1 año con datos gratis (tarda la primera vez; luego usa caché)."""
+    from datetime import date
+
+    from .backtest.run import collect_and_simulate, format_report, write_csv
+    from .config import ROOT
+    cfg = load_config(args.config)
+    fh, ap = _clients()
+    end = date.fromisoformat(args.end) if args.end else date.today()
+    rep = collect_and_simulate(cfg, fh, ap, ROOT / "data" / "cache" / "backtest", end)
+    amount = cfg.capital.monto(None)
+    out = ROOT / "data" / "backtest" / f"operaciones_{end.isoformat()}.csv"
+    write_csv(rep, out, amount)
+    txt = format_report(rep, cfg, amount)
+    (out.parent / f"reporte_{end.isoformat()}.txt").write_text(txt, encoding="utf-8")
+    print(txt)
+    print(f"\nDetalle de cada evento: {out}")
     return 0
 
 
@@ -206,9 +303,17 @@ def main(argv=None) -> int:
     sc.set_defaults(func=cmd_scan)
     tt = sub.add_parser("telegram-test", help="Manda una alerta de ejemplo a Telegram")
     tt.set_defaults(func=cmd_telegram_test)
+    ls = sub.add_parser("listen", help="Escucha y contesta tus botones al instante")
+    ls.add_argument("--minutos", type=float, default=60, help="Cuánto tiempo escuchar (default 60)")
+    ls.set_defaults(func=cmd_listen)
+    ib = sub.add_parser("inbox", help="Lee tus toques de ✅ Voy / ❌ Paso")
+    ib.set_defaults(func=cmd_inbox)
     gd = sub.add_parser("guia", help="Manda la explicación del bot a Telegram")
     gd.add_argument("--dry-run", action="store_true", help="Solo imprime")
     gd.set_defaults(func=cmd_guide)
+    bt = sub.add_parser("backtest", help="Backtest de 1 año con datos gratis")
+    bt.add_argument("--end", default=None, help="Último día (AAAA-MM-DD); por defecto hoy")
+    bt.set_defaults(func=cmd_backtest)
     tr = sub.add_parser("track", help="Cierre diario de operaciones simuladas")
     tr.add_argument("--dry-run", action="store_true", help="No manda nada a Telegram")
     tr.set_defaults(func=cmd_track)

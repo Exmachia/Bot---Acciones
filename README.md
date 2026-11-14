@@ -17,8 +17,8 @@ moviéndose en la dirección de una sorpresa de resultados durante días).
 | 2. Telegram | ✅ |
 | 3. Claude (noticias) | ✅ |
 | 4. Registro y reporte | ✅ |
-| 5. Backtest | pendiente |
-| 6. Despliegue | pendiente |
+| 5. Backtest | ✅ (resultado: no le gana a SPY) |
+| 6. Despliegue | ✅ (GitHub Actions) |
 
 ## Instalación
 
@@ -70,6 +70,9 @@ python -m pytest                       # pruebas
 python -m pead_bot.cli scan --dry-run  # escanea e imprime por qué pasa o no cada candidato
 python -m pead_bot.cli scan            # igual, y además manda las alertas a Telegram
 python -m pead_bot.cli telegram-test   # manda una alerta de EJEMPLO para ver el formato
+python -m pead_bot.cli inbox           # lee tus toques de ✅ Voy / ❌ Paso
+python -m pead_bot.cli listen          # escucha y contesta tus botones al instante (Ctrl+C para salir)
+python -m pead_bot.cli backtest        # prueba la estrategia con 1 año de datos (tarda ~1.5 h la 1a vez)
 python -m pead_bot.cli guia            # manda a Telegram la explicación del bot en palabras sencillas
 python -m pead_bot.cli track           # cierre diario (16:30 NY) de operaciones simuladas
 python -m pead_bot.cli report          # reporte semanal (domingo) con costos y contra SPY
@@ -82,8 +85,8 @@ Tope por jugada: **$10,000 MXN**. El monto sale de la confianza de Claude:
 (con menos de 3 no hay alerta). Sin límite total: cada alerta trae su monto aunque haya
 otras abiertas, y te dice cuánto llevarías metido en total.
 
-Cada alerta empieza con **"En palabras sencillas"**: qué pasó, el monto, la fecha máxima
-y cuánto ganarías o perderías en pesos (ya con costos). Cada operación simulada guarda
+Cada alerta va por bloques separados: **🎯 La jugada** (monto, entrada, stop y objetivo con
+lo que ganarías o perderías en pesos, fecha máxima), **📰 Qué pasó** y **🤖 Claude**. Cada operación simulada guarda
 su monto y el reporte usa ese mismo monto. Todo es bajo tu propio riesgo.
 
 ### Qué manda a Telegram
@@ -132,6 +135,45 @@ Con eso, cada operación necesita subir ~1.1% solo para no perder.
 **Contra SPY:** para cada operación se mide qué hizo SPY (el S&P 500) en esos mismos días,
 sin costos. Si la estrategia no le gana, no vale la pena. El reporte avisa que hacen falta
 al menos 20 operaciones antes de sacar conclusiones.
+
+### Botones ✅ Voy / ❌ Paso
+Cada alerta 🟢 trae botones. Si tocas **Voy**, el bot anota la jugada y te escribe una sola
+vez cuando toque vender: 🛑 tocó el stop, ✅ llegó al objetivo, ⏱️ hoy es el último día, o
+🔔 terminó con el cierre. El bot no compra ni vende; solo te avisa. Solo acepta toques de tu chat.
+
+### Backtest (fase 5): resultado
+1 año (nov 2025 a nov 2026), datos gratis, sin el filtro de Claude, $5,000 MXN por operación:
+
+| | |
+|---|---|
+| Operaciones | 1,032 (≈ 4 por día de bolsa) · ganadoras 41% |
+| Promedio por operación | +0.17% bruto · **−0.91% después de costos** |
+| SPY en los mismos días | +0.21% por operación |
+| Total | **−46,780 MXN** (SPY en esos días: +10,595) |
+
+**Veredicto: no le gana a SPY**, ni siquiera antes de costos. Rango probable: −1.47% a −0.75%
+por operación contra SPY. Cómo se evitaron las trampas: hora exacta del reporte (SEC), revisión
+cada 15 min solo con datos ya publicados, volumen con 16 min de retraso, salidas conservadoras.
+Limitaciones: solo 1 año, solo empresas que existen hoy (eso hace que se vea *mejor*, no peor),
+valor de mercado aproximado, sin el filtro de Claude (no se puede probar sin ver el futuro).
+
+### Que corra solo (fase 6, GitHub Actions)
+`.github/workflows/bot.yml` corre gratis (repo público) en estos horarios (CDMX):
+- **Lun-vie cada 15 min, 6:00 a 15:45:** escanea, manda alertas, revisa tus jugadas y se queda
+  escuchando tus botones hasta la siguiente corrida.
+- **Lun-vie 15:45:** cierre diario de operaciones simuladas.
+- **Domingo 17:00:** reporte semanal.
+
+**El historial** (operaciones, decisiones, avisos ya mandados) se guarda **cifrado** (AES-256)
+en la rama `estado`, con la clave `STATE_KEY`. Sin esa clave nadie puede leerlo.
+
+**Llaves en GitHub** (una sola vez): en el repo → **Settings → Secrets and variables →
+Actions → New repository secret**, crea uno por cada línea de tu `.env`:
+`FINNHUB_API_KEY`, `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`, `STATE_KEY`. Luego en **Actions → Bot de alertas →
+Run workflow** puedes correrlo a mano para probar.
+
+Una vez que corre en GitHub, no lo corras también en tu compu (tendrías dos historiales).
 
 ### Detalles técnicos que importan
 - **Horarios:** se calculan en hora de Nueva York (que cambia por horario de verano) y se

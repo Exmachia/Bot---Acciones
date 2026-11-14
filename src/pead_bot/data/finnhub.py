@@ -29,6 +29,7 @@ class CompanyProfile:
     market_cap_usd: float | None
     exchange: str | None
     weburl: str | None = None
+    shares_outstanding: float | None = None  # acciones en circulación (unidades)
 
 
 class FinnhubClient:
@@ -71,4 +72,10 @@ class FinnhubClient:
             market_cap_usd=float(mc) * 1_000_000 if mc else None,
             exchange=data.get("exchange"),
             weburl=data.get("weburl"),
+            shares_outstanding=(float(data["shareOutstanding"]) * 1_000_000
+                                if data.get("shareOutstanding") else None),
         )
+
+    def earnings_history(self, symbol: str) -> list[dict]:
+        """Últimos trimestres (plan gratis: 4) con EPS real vs. estimado. Sin fecha de reporte."""
+        return self._get("/stock/earnings", symbol=symbol) or []

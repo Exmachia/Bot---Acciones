@@ -34,16 +34,48 @@ class TelegramClient:
         self.chat_id = chat_id
         self._s = session or requests.Session()
 
-    def send(self, text: str, retries: int = 3) -> None:
-        for part in split_message(text):
-            self._send_one(part, retries)
+    def send(self, text: str, retries: int = 3, buttons: list[list[tuple[str, str]]] | None = None) -> int | None:
+        """Manda el texto (partido si es largo). Los botones van en el último pedazo.
+        Devuelve el message_id del último mensaje."""
+        parts = split_message(text)
+        mid = None
+        for i, part in enumerate(parts):
+            payload = {"chat_id": self.chat_id, "text": part, "parse_mode": "HTML",
+                       "disable_web_page_preview": True}
+            if buttons and i == len(parts) - 1:
+                payload["reply_markup"] = {"inline_keyboard": [
+                    [{"text": t, "callback_data": d} for t, d in row] for row in buttons]}
+            res = self._call("sendMessage", payload, retries)
+            mid = (res or {}).get("message_id")
+        return mid
 
-    def _send_one(self, text: str, retries: int) -> None:
-        payload = {"chat_id": self.chat_id, "text": text, "parse_mode": "HTML",
-                   "disable_web_page_preview": True}
+    def get_updates(self, offset: int | None = None, wait: int = 0) -> list[dict]:
+        """wait > 0: espera hasta `wait` segundos a que llegue algo (long polling)."""
+        payload = {"timeout": wait, "allowed_updates": ["callback_query", "message"]}
+        if offset is not None:
+            payload["offset"] = offset
+        return self._call("getUpdates", payload, timeout=wait + 15) or []
+
+    def answer_callback(self, callback_id: str, text: str = "") -> None:
+        try:
+            self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text}, retries=0)
+        except TelegramError:
+            pass  # si el toque es muy viejo, Telegram ya no deja contestarlo; no importa
+
+    def edit_buttons(self, message_id: int, buttons: list[list[tuple[str, str]]] | None) -> None:
+        markup = {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]
+                                      for row in (buttons or [])]}
+        try:
+            self._call("editMessageReplyMarkup",
+                       {"chat_id": self.chat_id, "message_id": message_id, "reply_markup": markup}, retries=0)
+        except TelegramError:
+            pass  # si no se puede editar (mensaje muy viejo), el aviso de texto basta
+
+    def _call(self, method: str, payload: dict, retries: int = 3, timeout: float = 20):
+        url = self._url.rsplit("/", 1)[0] + "/" + method
         for attempt in range(retries + 1):
             try:
-                r = self._s.post(self._url, json=payload, timeout=20)
+                r = self._s.post(url, json=payload, timeout=timeout)
             except requests.RequestException as e:  # el mensaje de requests trae la URL con el token
                 if attempt == retries:
                     raise TelegramError(f"No pude conectar con Telegram ({type(e).__name__}).") from None
@@ -59,4 +91,4 @@ class TelegramClient:
                         403: " (¿bloqueaste al bot o no le diste Iniciar?)"}.get(r.status_code, "")
                 raise TelegramError(f"Telegram respondió {r.status_code}: "
                                     f"{data.get('description', r.text[:200])}{hint}")
-            return
+            return data.get("result")

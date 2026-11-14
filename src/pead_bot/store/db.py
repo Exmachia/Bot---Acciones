@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_reason TEXT,
     spy_exit    REAL,
     monto_mxn   REAL,                   -- pesos que dijo la alerta (regla de config.yaml)
+    decision    TEXT,                   -- 'voy' | 'paso' | NULL (botones de Telegram)
+    notices     TEXT,                   -- avisos de venta ya mandados, separados por coma
     UNIQUE(symbol, entry_date)
 );
 """
@@ -54,7 +56,12 @@ class Trade:
     exit_reason: str | None = None
     spy_exit: float | None = None
     monto_mxn: float | None = None
+    decision: str | None = None
+    notices: str | None = None
     id: int | None = None
+
+    def has_notice(self, kind: str) -> bool:
+        return kind in (self.notices or "").split(",")
 
 
 _DATES = {"entry_date", "deadline", "exit_date"}
@@ -78,9 +85,31 @@ class TradeStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(trades)")}
-        if "monto_mxn" not in cols:  # bases creadas antes de guardar el monto
-            self.conn.execute("ALTER TABLE trades ADD COLUMN monto_mxn REAL")
-            self.conn.commit()
+        for col, typ in (("monto_mxn", "REAL"), ("decision", "TEXT"), ("notices", "TEXT")):
+            if col not in cols:  # bases creadas con una versión anterior
+                self.conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
+        self.conn.commit()
+
+    def get(self, symbol: str, entry_date: date) -> Trade | None:
+        r = self.conn.execute("SELECT * FROM trades WHERE symbol=? AND entry_date=?",
+                              (symbol, entry_date.isoformat())).fetchone()
+        return _from_row(r) if r else None
+
+    def set_decision(self, trade_id: int, decision: str) -> None:
+        self.conn.execute("UPDATE trades SET decision=? WHERE id=?", (decision, trade_id))
+        self.conn.commit()
+
+    def add_notice(self, trade_id: int, kind: str) -> None:
+        cur = self.conn.execute("SELECT notices FROM trades WHERE id=?", (trade_id,)).fetchone()[0]
+        kinds = [k for k in (cur or "").split(",") if k] + [kind]
+        self.conn.execute("UPDATE trades SET notices=? WHERE id=?", (",".join(kinds), trade_id))
+        self.conn.commit()
+
+    def taken(self) -> list[Trade]:
+        """Jugadas en las que dijiste 'voy' y que aún no tienen aviso de venta."""
+        rows = self.conn.execute("SELECT * FROM trades WHERE decision='voy' ORDER BY entry_date, id")
+        return [t for t in map(_from_row, rows) if not (t.has_notice("stop") or t.has_notice("objetivo")
+                                                        or t.has_notice("cierre"))]
 
     def open_total(self) -> tuple[int, float]:
         """(cuántas abiertas, pesos metidos en ellas)."""

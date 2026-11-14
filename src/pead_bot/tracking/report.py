@@ -35,7 +35,8 @@ def format_closed(c: Closed, default_amount: float) -> str:
     notional = amount_of(t, default_amount)
     icon = "✅" if k.net_pct > 0 else "🔻"
     lines = [
-        f"{icon} <b>Cerré (simulada) {escape(t.symbol)}</b> · {_REASON.get(e.reason, e.reason)}",
+        f"{icon} <b>Cerré (simulada) {escape(t.symbol)}</b> · {_REASON.get(e.reason, e.reason)}"
+        + (" · tú ibas en esta" if t.decision == "voy" else ""),
         f"Entrada ${t.entry:,.2f} ({fmt_date(t.entry_date)}) → salida ${e.price:,.2f} ({fmt_date(e.day)})",
         f"Movimiento: {k.gross_pct:+.1f}% · después de comisión, IVA y tipo de cambio: {k.net_pct:+.1f}%",
         f"Con ${notional:,.0f} MXN: {mxn(k.pnl(notional))} (antes de ISR)",

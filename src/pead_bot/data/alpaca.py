@@ -63,6 +63,11 @@ class AlpacaClient:
         """Si las llaves fueran reales, el endpoint de paper las rechaza."""
         return get_json(f"{ALPACA_PAPER_TRADING_URL}/v2/account", headers=self.headers)
 
+    def assets(self) -> list[dict]:
+        """Acciones de EE. UU. activas (solo lectura, endpoint de paper)."""
+        return get_json(f"{ALPACA_PAPER_TRADING_URL}/v2/assets", headers=self.headers,
+                        params={"status": "active", "asset_class": "us_equity"})
+
     def calendar(self, start: date, end: date) -> list[TradingDay]:
         rows = get_json(f"{ALPACA_PAPER_TRADING_URL}/v2/calendar", headers=self.headers,
                         params={"start": start.isoformat(), "end": end.isoformat()})

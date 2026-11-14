@@ -1,0 +1,99 @@
+# Fase 6: el bot corre solo en GitHub Actions (gratis en repos públicos).
+# Horarios en UTC. CDMX = UTC−6 todo el año. Nueva York = UTC−5 (invierno) / UTC−4 (verano).
+name: Bot de alertas
+
+on:
+  schedule:
+    - cron: "*/15 12-21 * * 1-5"   # cada 15 min, lun-vie 6:00–15:45 CDMX: escaneo + avisos + botones
+    - cron: "45 21 * * 1-5"        # lun-vie 15:45 CDMX: cierre diario de operaciones simuladas
+    - cron: "0 23 * * 0"           # domingo 17:00 CDMX: reporte semanal
+  workflow_dispatch:                # botón "Run workflow" para correrlo a mano
+    inputs:
+      comando:
+        description: "scan, track, report o guia"
+        default: scan
+
+concurrency:
+  group: bot              # nunca dos corridas al mismo tiempo (comparten el historial)
+  cancel-in-progress: false
+
+permissions:
+  contents: write         # solo para guardar el historial cifrado en la rama "estado"
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      STATE_KEY: ${{ secrets.STATE_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Revisar llaves
+        id: check
+        run: |
+          missing=""
+          for k in FINNHUB_API_KEY ALPACA_API_KEY_ID ALPACA_API_SECRET_KEY TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID STATE_KEY; do
+            [ -z "${!k}" ] && missing="$missing $k"
+          done
+          if [ -n "$missing" ]; then
+            echo "Faltan secretos en GitHub:$missing. No hago nada hasta que estén (ver README, fase 6)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ok == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.ok == 'true'
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Instalar
+        if: steps.check.outputs.ok == 'true'
+        run: pip install -e .
+
+      - name: Recuperar historial
+        if: steps.check.outputs.ok == 'true'
+        run: bash scripts/state.sh restore
+
+      - name: Elegir qué hacer
+        if: steps.check.outputs.ok == 'true'
+        id: cmd
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_CMD: ${{ github.event.inputs.comando }}   # como variable, no pegado en el script
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            CMD="$INPUT_CMD"
+          elif [ "$SCHEDULE" = "45 21 * * 1-5" ]; then
+            CMD=track
+          elif [ "$SCHEDULE" = "0 23 * * 0" ]; then
+            CMD=report
+          else
+            CMD=scan
+          fi
+          case "$CMD" in scan|track|report|guia) ;; *) echo "Comando no válido: $CMD"; exit 1;; esac
+          echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
+
+      - name: Correr
+        if: steps.check.outputs.ok == 'true'
+        run: python -m pead_bot.cli ${{ steps.cmd.outputs.cmd }}
+
+      - name: Escuchar botones hasta la siguiente corrida
+        if: steps.check.outputs.ok == 'true' && steps.cmd.outputs.cmd == 'scan' && github.event_name == 'schedule'
+        continue-on-error: true
+        run: python -m pead_bot.cli listen --minutos 11
+
+      - name: Guardar historial (cifrado)
+        if: always() && steps.check.outputs.ok == 'true'
+        run: bash scripts/state.sh save

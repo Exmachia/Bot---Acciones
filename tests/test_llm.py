@@ -119,11 +119,11 @@ def test_alert_shows_claude_reading():
     ev.analysis = _analysis(conf=4, real=False, letra="La ganancia incluye la venta de una planta")
     plan = make_plan(104.0, date(2026, 11, 12), CFG.plan, DAYS)
     txt = format_alert(ev, plan, NOW, source=("benzinga", "https://ej.com/n1"))
-    for must in ["Lectura de noticias (Claude)", "Vendió más de lo esperado.",
-                 "parece de una sola vez", "Letra chica: La ganancia incluye la venta de una planta",
-                 "guía): la subió", "• Riesgo: Competencia fuerte",
-                 "Confianza:</b> 4 de 5 (Claude) · 2 de 3 puntos",
-                 '<a href="https://ej.com/n1">benzinga</a>']:
+    for must in ["CLAUDE", "Vendió más de lo esperado.",
+                 "Sorpresa parece de una sola vez ⚠️ · guía la subió ✅",
+                 "Letra chica: La ganancia incluye la venta de una planta",
+                 "Riesgos: Competencia fuerte; Dólar; Extra",
+                 "Puntos 2/3", '<a href="https://ej.com/n1">benzinga</a>']:
         assert must in txt, must
 
 

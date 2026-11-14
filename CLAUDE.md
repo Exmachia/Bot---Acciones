@@ -41,16 +41,31 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       Comandos `track` y `report` (con --dry-run).
 - [x] Extra: regla de monto elegida por el usuario (`capital`): tope 10,000 MXN por jugada,
       % según confianza de Claude (5→100, 4→75, 3→50; sin lectura→50), sin límite total.
-      La alerta empieza con "En palabras sencillas" (qué pasó, monto, fecha máxima,
-      pérdida/ganancia en MXN con costos, total abierto) y cierra con "bajo tu propio riesgo".
+      Alerta compacta por bloques con separadores (━━━): 🎯 LA JUGADA (monto, entrada,
+      stop/objetivo con MXN, fecha máxima, abiertas), 📰 QUÉ PASÓ, 🤖 CLAUDE; cierra con
+      "Bajo tu propio riesgo". El usuario pidió no usar el título "En palabras sencillas".
       Cada trade guarda `monto_mxn`; el reporte lo usa. Comando `guia` manda la explicación.
 - Pregunta pendiente del usuario: compra/venta automática. GBM no tiene API pública (no
   automatizar con su usuario/contraseña). Si se quiere: después de la fase 5, ensayo con
   órdenes paper en Alpaca; luego broker con API (IBKR/Alpaca live). Requiere que el usuario
   cambie la regla "no compra ni vende" de arriba.
-- [ ] Fase 5: backtest 2 años; explicar look-ahead y supervivencia; decir claramente si no
-      le gana a SPY después de costos. Pendiente confirmar historia del plan gratis de Finnhub.
-- [ ] Fase 6: GitHub Actions (repo público) con cron; costo mensual.
+- [x] Fase 5: `backtest/` (data.py: universo Alpaca, Finnhub stock/earnings 4 trimestres,
+      hora 8-K item 2.02 de SEC con UA genérico sin datos personales, acciones en circulación;
+      sim.py: día de reacción, revisión cada 15 min desde 10:00 NY con precio previo y volumen
+      −16 min, salidas de fase 4; run.py: reporte y veredicto con rango ±2 EE). Caché en
+      data/cache/backtest (1a corrida ~1.5 h). RESULTADO nov-2025→nov-2026: 1,032 operaciones,
+      41% ganadoras, +0.17% bruto, −0.91% neto, SPY mismos días +0.21% → NO le gana a SPY
+      (−1.11%/op, rango −1.47 a −0.75). Sin bolsillo claro de ventaja; no sobreajustar reglas
+      al mismo año. Finnhub gratis: calendario solo ~1 mes atrás.
+- [x] Botones ✅ Voy / ❌ Paso (`notify/decisions.py`): getUpdates en cada corrida (solo del
+      chat del usuario), columnas `decision` y `notices`; avisos de venta una vez: stop,
+      objetivo, último día, cierre. Comando `inbox`. Alerta de ejemplo usa símbolo EJEM (no
+      se guarda).
+- [x] Fase 6: `.github/workflows/bot.yml` (cron UTC: */15 12-21 lun-vie → scan + listen 11 min;
+      21:45 lun-vie → track; dom 23:00 → report; workflow_dispatch con comando). Historial en
+      rama `estado` cifrado con AES-256 (`scripts/state.sh`, secreto STATE_KEY generado en .env).
+      `concurrency: bot` para no pisar el historial. Repo público y rama de trabajo = default
+      (los cron solo corren en la rama default). Secrets los pone el usuario en GitHub. Sin secretos, la corrida no hace nada (no falla).
 
 ## Notas técnicas
 - Horarios en America/New_York con zoneinfo; mostrar en CDMX.

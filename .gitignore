@@ -8,6 +8,7 @@
 *.sqlite3
 *.db
 data/cache/
+data/backtest/
 
 # Python
 __pycache__/
