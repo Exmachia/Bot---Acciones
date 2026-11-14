@@ -15,7 +15,6 @@ DEFAULT_CONFIG = ROOT / "config.yaml"
 
 
 class StrategyCfg(BaseModel):
-    lookback_hours: float = 24
     eps_surprise_min_pct: float = 10
     min_abs_eps_estimate: float = 0.01
     points_revenue_beat: int = 1

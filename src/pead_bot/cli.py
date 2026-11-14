@@ -25,7 +25,7 @@ def cmd_scan(args) -> int:
     res = run_scan(cfg, fh, ap)
     print(f"Escaneo {fmt_mx(res.now)} · mercado hoy: {'sí' if res.session else 'no'}")
     print(f"Reportes descartados antes de filtros (sin sorpresa >"
-          f"{cfg.strategy.eps_surprise_min_pct}% o fuera de ventana): {res.skipped_pre_filter}")
+          f"{cfg.strategy.eps_surprise_min_pct}%, viejos o sin publicar): {res.skipped_pre_filter}")
     if not res.evaluations:
         print("Sin candidatos.")
         return 0

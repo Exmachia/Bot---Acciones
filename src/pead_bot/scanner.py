@@ -10,7 +10,7 @@ from .data.alpaca import SIP_DELAY, AlpacaClient, TradingDay
 from .data.finnhub import FinnhubClient
 from .schedule import NY, report_timestamp, session_minutes_elapsed
 from .strategy.filters import (CandidateData, Evaluation, average_volume, base_close,
-                               eps_surprise_pct, evaluate, is_recent, relative_volume)
+                               eps_surprise_pct, evaluate, is_fresh, relative_volume)
 
 log = logging.getLogger(__name__)
 
@@ -38,12 +38,12 @@ def run_scan(cfg: Config, fh: FinnhubClient, ap: AlpacaClient, now: datetime | N
     session = next((d for d in cal if d.date == now.date()), None)
 
     # 1) Reportes recientes con sorpresa de EPS suficiente (filtro barato, sin más llamadas)
-    reports = fh.earnings_calendar(now.date() - timedelta(days=2), now.date())
+    reports = fh.earnings_calendar(now.date() - timedelta(days=5), now.date())
     picked = []
     for r in reports:
         if r.eps_actual is None or not r.symbol or "." in r.symbol:
             continue  # aún no reporta, o no es una acción común de EE. UU.
-        if not is_recent(report_timestamp(r.date, r.hour), now, s.lookback_hours):
+        if not is_fresh(report_timestamp(r.date, r.hour), now, cal):
             continue
         sp = eps_surprise_pct(r.eps_actual, r.eps_estimate, s.min_abs_eps_estimate)
         if sp is None or sp <= s.eps_surprise_min_pct:

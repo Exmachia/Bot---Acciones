@@ -1,11 +1,11 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import pytest
 
 from pead_bot.config import FiltersCfg, StrategyCfg
 from pead_bot.schedule import NY
 from pead_bot.strategy.filters import (CandidateData, average_volume, base_close, beat,
-                                       eps_surprise_pct, evaluate, is_recent, relative_volume)
+                                       eps_surprise_pct, evaluate, is_fresh, relative_volume)
 
 
 @pytest.mark.parametrize("actual,est,expected", [
@@ -31,11 +31,37 @@ def test_beat():
     assert beat(None, 100) is None
 
 
-def test_is_recent():
-    now = datetime(2026, 11, 12, 10, 0, tzinfo=NY)
-    assert is_recent(now - timedelta(hours=23), now, 24)
-    assert not is_recent(now - timedelta(hours=25), now, 24)
-    assert not is_recent(now + timedelta(minutes=1), now, 24)  # futuro: aún no pasa
+class _S:
+    def __init__(self, d, close_h=16):
+        self.date = d
+        self.close = datetime(d.year, d.month, d.day, close_h, 0, tzinfo=NY)
+
+
+# jue 12, vie 13, lun 16, mar 17 de nov 2026
+SESS = [_S(date(2026, 11, d)) for d in (12, 13, 16, 17)]
+
+
+def _ts(d, h, m=0):
+    return datetime(2026, 11, d, h, m, tzinfo=NY)
+
+
+def test_fresh_amc_friday_still_valid_monday_morning():
+    rep = _ts(13, 16, 5)                         # viernes después del cierre
+    assert is_fresh(rep, _ts(14, 12), SESS)       # sábado
+    assert is_fresh(rep, _ts(16, 8, 30), SESS)    # lunes pre-apertura
+    assert is_fresh(rep, _ts(16, 15), SESS)       # lunes durante la sesión
+    assert not is_fresh(rep, _ts(16, 16, 30), SESS)  # lunes ya cerró → viejo
+    assert not is_fresh(rep, _ts(17, 10), SESS)
+
+
+def test_fresh_bmo_only_same_day():
+    rep = _ts(13, 7)                             # viernes antes de abrir
+    assert is_fresh(rep, _ts(13, 10), SESS)
+    assert not is_fresh(rep, _ts(16, 8, 30), SESS)   # el lunes ya es viejo
+
+
+def test_not_fresh_if_not_published_yet():
+    assert not is_fresh(_ts(13, 16, 5), _ts(13, 10), SESS)
 
 
 def test_base_close_amc_vs_bmo():

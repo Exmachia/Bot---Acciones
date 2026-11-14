@@ -4,7 +4,8 @@
 # ============================================================
 
 strategy:
-  lookback_hours: 24            # reportes publicados en las últimas N horas
+  # Ventana: el reporte cuenta si la sesión en juego (hoy, o el siguiente día
+  # hábil si ya cerró) es el primer día en que el mercado puede reaccionar.
   eps_surprise_min_pct: 10      # EPS real debe superar al estimado por más de esto
   min_abs_eps_estimate: 0.01    # si el estimado es ~0, la sorpresa % no tiene sentido: se descarta
   points_revenue_beat: 1        # puntos extra si también superó ingresos

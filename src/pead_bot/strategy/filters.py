@@ -9,7 +9,7 @@ Glosario rápido:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from ..config import FiltersCfg, StrategyCfg
 from ..schedule import NY, reported_after_close
@@ -38,8 +38,30 @@ def beat(actual: float | None, estimate: float | None) -> bool | None:
     return actual > estimate
 
 
-def is_recent(report_ts: datetime, now: datetime, lookback_hours: float) -> bool:
-    return report_ts <= now and (now - report_ts) <= timedelta(hours=lookback_hours)
+def reaction_day(report_ts: datetime, sessions) -> date | None:
+    """Primer día de bolsa en que el mercado puede reaccionar al reporte:
+    la primera sesión que cierra después de publicado (bmo/dmh → ese día;
+    amc → el siguiente día hábil, aunque haya fin de semana o feriado)."""
+    for s in sorted(sessions, key=lambda x: x.close):
+        if s.close > report_ts:
+            return s.date
+    return None
+
+
+def active_session(now: datetime, sessions) -> date | None:
+    """Sesión "en juego": hoy si el mercado no ha cerrado; si ya cerró
+    (o es fin de semana/feriado), el siguiente día hábil."""
+    return reaction_day(now, sessions)
+
+
+def is_fresh(report_ts: datetime, now: datetime, sessions) -> bool:
+    """El reporte es "nuevo" si ya se publicó y su día de reacción es la
+    sesión en juego. Así un reporte del viernes en la tarde sigue vigente
+    el lunes antes y durante la apertura, pero no el martes."""
+    if report_ts > now:
+        return False
+    rd = reaction_day(report_ts, sessions)
+    return rd is not None and rd == active_session(now, sessions)
 
 
 def base_close(daily_closes: dict[date, float], report_date: date, hour: str | None) -> float | None:
@@ -77,6 +99,10 @@ def relative_volume(today_volume: float, avg_daily_volume: float | None,
         return None
     expected = avg_daily_volume * min(minutes_elapsed, REGULAR_SESSION_MINUTES) / REGULAR_SESSION_MINUTES
     return today_volume / expected if expected > 0 else None
+
+
+def _money(x: float) -> str:
+    return f"${x/1e9:,.1f} mil M" if x >= 1e9 else f"${x/1e6:,.0f} M"
 
 
 def pct_change(price: float, base: float) -> float:
@@ -157,7 +183,7 @@ def evaluate(d: CandidateData, s: StrategyCfg, f: FiltersCfg) -> Evaluation:
         add(Check("valor_mercado", False, "sin dato"))
     else:
         add(Check("valor_mercado", d.market_cap > f.min_market_cap,
-                  f"${d.market_cap/1e9:.1f} mil M (mín. >${f.min_market_cap/1e9:.1f} mil M)"))
+                  f"{_money(d.market_cap)} (mín. >{_money(f.min_market_cap)})"))
 
     # 3. No perseguir
     if d.price is None or not d.base_close:

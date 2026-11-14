@@ -57,7 +57,8 @@ python -m pead_bot.cli scan --dry-run  # escanea e imprime por qué pasa o no ca
 
 Todos los números están en `config.yaml`.
 
-1. **Candidatos:** reportaron en las últimas 24 h y su **EPS** (utilidad por acción) real
+1. **Candidatos:** reportaron desde la última sesión (un reporte del viernes en la tarde
+   sigue vigente el lunes) y su **EPS** (utilidad por acción) real
    superó al estimado de analistas por más de 10%. +1 punto si también superó **ingresos**
    (ventas totales), +1 si subió su **guía** (lo que la empresa espera ganar a futuro).
 2. **Calidad:** precio > $5, **volumen promedio** > 1 M acciones/día (que sea fácil comprar
