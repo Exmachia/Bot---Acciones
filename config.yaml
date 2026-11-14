@@ -1,0 +1,42 @@
+# ============================================================
+# Configuración ajustable del bot. Todos los % van en puntos
+# porcentuales (10 = 10%).
+# ============================================================
+
+strategy:
+  lookback_hours: 24            # reportes publicados en las últimas N horas
+  eps_surprise_min_pct: 10      # EPS real debe superar al estimado por más de esto
+  min_abs_eps_estimate: 0.01    # si el estimado es ~0, la sorpresa % no tiene sentido: se descarta
+  points_revenue_beat: 1        # puntos extra si también superó ingresos
+  points_guidance_raise: 1      # puntos extra si subió su guía (se detecta en fase 3 con noticias)
+
+filters:
+  min_price: 5                  # USD
+  min_avg_volume: 1000000       # acciones/día (promedio de avg_volume_days)
+  min_market_cap: 1000000000    # USD
+  max_gain_since_prev_close_pct: 8   # "no perseguir"
+  min_relative_volume: 2.0      # volumen de hoy vs. promedio, ajustado por hora del día
+  avg_volume_days: 20
+  min_session_minutes_for_rvol: 15   # antes de esto el volumen relativo es puro ruido
+
+plan:
+  stop_loss_pct: 5
+  take_profit_pct: 8
+  max_holding_days: 5           # días hábiles de bolsa de EE. UU.
+
+llm:
+  model: claude-haiku-5-5
+  max_news_items: 10
+  min_confidence: 3             # alertas con confianza menor no se mandan (fase 3)
+
+costs:                          # se aplican en reporte y backtest
+  commission_pct: 0.25          # GBM: caso conservador; ajústalo a tu contrato
+  vat_on_commission_pct: 16     # IVA sobre la comisión
+  fx_spread_pct: 0.5            # costo de tipo de cambio (ida y vuelta)
+  isr_pct: 10                   # ISR sobre ganancia neta (SIC)
+
+schedule:
+  premarket_scan_ny: "08:30"    # hora de Nueva York
+  scan_interval_minutes: 15
+  daily_tracking_ny: "16:30"
+  weekly_report_ny: "18:00"     # domingo

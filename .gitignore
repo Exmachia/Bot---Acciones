@@ -1,0 +1,20 @@
+# Secretos: NUNCA subir
+.env
+.env.*
+!.env.example
+
+# Datos locales
+*.sqlite
+*.sqlite3
+*.db
+data/cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
