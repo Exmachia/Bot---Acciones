@@ -56,19 +56,40 @@ def summary_lines(ev: Evaluation) -> list[str]:
     return [l1, l2]
 
 
+_GUIA = {"subio": "la subió ✅", "igual": "sin cambios", "bajo": "la bajó ⚠️", "sin_dato": "no se menciona"}
+
+
+def analysis_lines(a) -> list[str]:
+    """Bloque con la lectura de noticias de Claude (fase 3)."""
+    lines = ["<b>Lectura de noticias (Claude)</b>", escape(a.resumen.strip())]
+    lines.append("Sorpresa: " + ("viene del negocio ✅" if a.sorpresa_real
+                                 else "parece de una sola vez ⚠️"))
+    if a.letra_chica.strip():
+        lines.append(f"Letra chica: {escape(a.letra_chica.strip())}")
+    lines.append(f"Pronóstico de la empresa (guía): {_GUIA.get(a.guia, a.guia)}")
+    for r in a.riesgos:
+        lines.append(f"• Riesgo: {escape(r)}")
+    return lines
+
+
 def max_points(points_revenue: int = 1, points_guidance: int = 1) -> int:
     return 1 + points_revenue + points_guidance
 
 
-def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 3) -> str:
-    """Alerta cuando un candidato ya pasó todos los filtros (incluido el volumen)."""
+def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 3,
+                 source: tuple[str, str] | None = None) -> str:
+    """Alerta cuando un candidato ya pasó todos los filtros (incluido el volumen).
+    `source` = (texto, url) de la noticia principal; si no hay, se usa la SEC."""
     d = ev.data
+    a = ev.analysis
     lines = [
         f"🟢 <b>{escape(d.symbol)}</b> · {escape(d.name)}",
         f"<b>Catalizador:</b> {escape(catalyst(ev))}",
         *[escape(x) for x in summary_lines(ev)],
         "",
     ]
+    if a is not None:
+        lines += [*analysis_lines(a), ""]
     moved = f"{ev.gain_pct:+.1f}%" if ev.gain_pct is not None else "s/d"
     lines.append(f"<b>Se ha movido:</b> {moved} desde el cierre previo al reporte")
     if d.rvol is not None:
@@ -81,8 +102,10 @@ def format_alert(ev: Evaluation, plan: TradePlan, now: datetime, max_pts: int = 
         f"Objetivo: ${plan.target:,.2f} ({(plan.target / plan.entry - 1) * 100:+.0f}%)",
         f"Fecha límite: {fmt_date(plan.deadline)} (si no tocó stop ni objetivo, se sale)",
         "",
-        f"<b>Confianza:</b> {ev.score} de {max_pts} puntos",
-        f'<a href="{escape(source_url(d.symbol))}">Ver reporte en la SEC</a>',
+        f"<b>Confianza:</b> " + (f"{a.confianza} de 5 (Claude) · " if a is not None
+                                 else "sin lectura de noticias · ") + f"{ev.score} de {max_pts} puntos",
+        f'<a href="{escape(source_url(d.symbol))}">Ver reporte en la SEC</a>'
+        + (f' · <a href="{escape(source[1])}">{escape(source[0])}</a>' if source else ""),
         "",
         f"⚠️ {SIC_NOTE}",
         f"<i>{DISCLAIMER} {escape(fmt_mx(now))}</i>",
@@ -102,7 +125,8 @@ def format_pending(evs: list[Evaluation], session_day: date, now: datetime) -> s
         d = ev.data
         sp = f"{ev.eps_surprise:+.0f}%" if ev.eps_surprise is not None else "s/d"
         mv = f"{ev.gain_pct:+.1f}%" if ev.gain_pct is not None else "s/d"
+        conf = f" · confianza {ev.analysis.confianza}/5" if ev.analysis is not None else ""
         lines.append(f"• <b>{escape(d.symbol)}</b> · {escape(d.name)} · "
-                     f"ganancia {sp} vs. esperado · movido {mv}")
+                     f"ganancia {sp} vs. esperado · movido {mv}{conf}")
     lines += ["", f"<i>{escape(fmt_mx(now))}</i>"]
     return "\n".join(lines)

@@ -33,8 +33,24 @@ def cmd_scan(args) -> int:
     tg = None if args.dry_run else _telegram()  # falla antes de escanear si falta una llave
     fh, ap = _clients()
     res = run_scan(cfg, fh, ap)
+    _read_news(res, cfg, ap)
     _print_scan(res, cfg)
     return _send(res, cfg, tg)
+
+
+def _read_news(res, cfg, ap) -> None:
+    """Fase 3: Claude lee las noticias de los candidatos que se van a avisar."""
+    import os
+
+    from .config import ROOT
+    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        print("(Sin ANTHROPIC_API_KEY en .env: las alertas salen sin lectura de noticias.)")
+        return
+    from .llm.enrich import enrich
+    from .llm.news import NewsAnalyzer
+    n = enrich(res, cfg, ap, NewsAnalyzer(cfg.llm.model), ROOT / "data" / "cache" / "analysis")
+    if n:
+        print(f"Claude leyó noticias de {n} candidato(s).")
 
 
 def _send(res, cfg, tg) -> int:
@@ -95,6 +111,10 @@ def _print_scan(res, cfg) -> None:
         for c in ev.checks:
             mark = {True: "ok ", False: "NO ", None: "...",}[c.passed]
             print(f"   [{mark}] {c.name}: {c.detail}")
+        if ev.analysis is not None:
+            a = ev.analysis
+            print(f"   Claude: confianza {a.confianza}/5 · sorpresa real: {'sí' if a.sorpresa_real else 'no'}"
+                  f" · guía: {a.guia} · {a.resumen}")
 
 
 def main(argv=None) -> int:

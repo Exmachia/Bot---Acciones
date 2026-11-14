@@ -15,7 +15,7 @@ moviéndose en la dirección de una sorpresa de resultados durante días).
 |---|---|
 | 1. Datos y filtros | ✅ |
 | 2. Telegram | ✅ |
-| 3. Claude (noticias) | pendiente |
+| 3. Claude (noticias) | ✅ |
 | 4. Registro y reporte | pendiente |
 | 5. Backtest | pendiente |
 | 6. Despliegue | pendiente |
@@ -47,6 +47,14 @@ cp .env.example .env    # y llena tus llaves (el .env nunca se sube a git)
    `curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates"` (busca `"chat":{"id":...}`)
    → `TELEGRAM_CHAT_ID` en `.env`.
 
+### Anthropic / Claude (de pago, muy barato)
+1. Entra a https://console.anthropic.com y crea tu cuenta.
+2. En **Billing** carga crédito (con $5 USD alcanza para meses) y deja **auto-reload apagado**.
+3. En **API Keys** → **Create Key** → elige **Somewhere else** (usar una llave) → nombre `bot-acciones`.
+4. Copia la llave (`sk-ant-...`, solo se muestra una vez) → `ANTHROPIC_API_KEY` en `.env`.
+
+Sin esta llave el bot funciona igual, pero las alertas salen sin lectura de noticias.
+
 ### Alpaca (cuenta paper, gratis)
 1. Regístrate en https://alpaca.markets. **No necesitas depositar ni verificar identidad** para paper.
 2. En el dashboard, arriba a la izquierda, asegúrate de estar en **Paper Trading**
@@ -70,6 +78,15 @@ python -m pead_bot.cli telegram-test   # manda una alerta de EJEMPLO para ver el
 - 🟢 **Alerta**: ya pasó todos los filtros. Trae catalizador, resumen, cuánto se ha
   movido, plan (entrada, stop, objetivo, fecha límite), puntos y link al reporte en la SEC.
 - Cada acción se avisa una sola vez por día (registro en `data/cache/sent.json`).
+
+### Lectura de noticias con Claude (fase 3)
+Antes de avisar, Claude (`claude-haiku-5-5`) lee las noticias de Alpaca de esa acción y devuelve:
+si la sorpresa viene del negocio o de algo de una sola vez, la letra chica, si la empresa
+subió su guía (suma 1 punto), sentimiento, hasta 3 riesgos y una **confianza de 1 a 5**.
+- Si la confianza es menor a `llm.min_confidence` (3), no se manda la alerta.
+- Solo se analizan las acciones que se van a avisar, y cada lectura se guarda por día
+  (`data/cache/analysis/`) para no pagarla dos veces. Costo aproximado: $0.001 USD por lectura.
+- Las noticias se le pasan a Claude como datos; el prompt le prohíbe seguir instrucciones que vengan en ellas.
 
 ## La estrategia, paso a paso
 

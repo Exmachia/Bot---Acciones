@@ -142,6 +142,8 @@ class Evaluation:
     eps_surprise: float | None = None
     gain_pct: float | None = None
     score: int = 0
+    analysis: object | None = None  # NewsAnalysis de la fase 3 (None si no hubo)
+    source: tuple[str, str] | None = None  # (medio, url) de la noticia más reciente
 
     @property
     def passed(self) -> bool:

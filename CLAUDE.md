@@ -26,8 +26,12 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       alertas, sin repetir: `data/cache/sent.json`). `scan` manda, `scan --dry-run` solo
       imprime, `telegram-test` manda un ejemplo. Bot: @alertas_acciones_mx_bot, probado.
       "Confianza" por ahora = puntos (de 3); en fase 3 se suma la confianza 1-5 de Claude.
-- [ ] Fase 3: Claude (claude-haiku-5-5) lee noticias de Alpaca → JSON: sorpresa real o letra
-      chica, sentimiento, riesgos, confianza 1-5, si subió guía (suma punto).
+- [x] Fase 3: Claude (claude-haiku-5-5, SDK anthropic 2.8, `messages.parse` con Pydantic).
+      `llm/news.py` (prompt + NewsAnalysis: resumen, sorpresa_real, letra_chica, guia,
+      sentimiento, riesgos, confianza 1-5), `llm/enrich.py` (solo analiza lo que se va a
+      avisar; caché por día en data/cache/analysis/; guía "subio" suma punto). Confianza
+      < llm.min_confidence no se manda. Sin ANTHROPIC_API_KEY el bot sigue sin lectura.
+      Probado con noticias reales (KSPI). El usuario cargó $20 de crédito.
 - [ ] Fase 4: SQLite, cierre diario de operaciones simuladas (stop/objetivo/fecha límite),
       reporte semanal domingo con costos (config.yaml: comisión GBM 0.25%+IVA conservador,
       0.5% tipo de cambio, 10% ISR sobre ganancia neta) vs. SPY. Pruebas del cálculo.

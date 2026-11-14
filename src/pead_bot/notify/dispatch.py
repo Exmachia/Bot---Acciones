@@ -33,6 +33,11 @@ def is_pre_open(res: ScanResult) -> bool:
     return res.now < res.session.open
 
 
+def low_confidence(ev, cfg: Config) -> bool:
+    """Claude la calificó por debajo del mínimo de config.yaml → no se avisa."""
+    return ev.analysis is not None and ev.analysis.confianza < cfg.llm.min_confidence
+
+
 def build_messages(res: ScanResult, cfg: Config, sent: set[str]) -> list[Outgoing]:
     day = res.active_day
     if day is None:
@@ -41,17 +46,18 @@ def build_messages(res: ScanResult, cfg: Config, sent: set[str]) -> list[Outgoin
     pts = max_points(cfg.strategy.points_revenue_beat, cfg.strategy.points_guidance_raise)
 
     for ev in res.evaluations:
-        if not ev.passed or ev.data.price is None:
+        if not ev.passed or ev.data.price is None or low_confidence(ev, cfg):
             continue
         key = f"alert:{day.isoformat()}:{ev.data.symbol}"
         if key in sent:
             continue
         plan = make_plan(ev.data.price, day, cfg.plan, res.trading_days)
-        out.append(Outgoing([key], format_alert(ev, plan, res.now, pts)))
+        out.append(Outgoing([key], format_alert(ev, plan, res.now, pts, source=ev.source)))
 
     if is_pre_open(res):
         new = [ev for ev in res.evaluations
-               if ev.pending_only and f"pending:{day.isoformat()}:{ev.data.symbol}" not in sent]
+               if ev.pending_only and not low_confidence(ev, cfg)
+               and f"pending:{day.isoformat()}:{ev.data.symbol}" not in sent]
         if new:
             keys = [f"pending:{day.isoformat()}:{ev.data.symbol}" for ev in new]
             out.append(Outgoing(keys, format_pending(new, day, res.now)))

@@ -43,7 +43,7 @@ def test_alert_has_everything():
                  "Ventas: $2.4 mil M vs. $2.2 mil M esperado (superó).",
                  "+4.0% desde el cierre previo", "3.0x lo normal",
                  "Entrada: $104.00", "Stop: $98.80 (-5%)", "Objetivo: $112.32 (+8%)",
-                 "Fecha límite: jue 19 nov", "Confianza:</b> 2 de 3 puntos",
+                 "Fecha límite: jue 19 nov", "Confianza:</b> sin lectura de noticias · 2 de 3 puntos",
                  "sec.gov", "CIK=ACME", SIC_NOTE, "No es asesoría"]:
         assert must in txt, must
 
