@@ -2,6 +2,8 @@
   python -m pead_bot.cli scan --dry-run   # imprime candidatos y los mensajes que mandaría
   python -m pead_bot.cli scan             # además manda las alertas a Telegram
   python -m pead_bot.cli telegram-test    # manda una alerta de EJEMPLO para ver el formato
+  python -m pead_bot.cli track            # cierre diario de operaciones simuladas
+  python -m pead_bot.cli report           # reporte semanal con costos y contra SPY
 """
 from __future__ import annotations
 
@@ -35,7 +37,7 @@ def cmd_scan(args) -> int:
     res = run_scan(cfg, fh, ap)
     _read_news(res, cfg, ap)
     _print_scan(res, cfg)
-    return _send(res, cfg, tg)
+    return _send(res, cfg, tg, ap)
 
 
 def _read_news(res, cfg, ap) -> None:
@@ -53,7 +55,13 @@ def _read_news(res, cfg, ap) -> None:
         print(f"Claude leyó noticias de {n} candidato(s).")
 
 
-def _send(res, cfg, tg) -> int:
+def _store():
+    from .config import ROOT
+    from .store.db import TradeStore
+    return TradeStore(ROOT / "data" / "pead.sqlite")
+
+
+def _send(res, cfg, tg, ap=None) -> int:
     from .config import ROOT
     from .notify.dispatch import SentStore, build_messages
     store = SentStore(ROOT / "data" / "cache" / "sent.json")
@@ -67,10 +75,20 @@ def _send(res, cfg, tg) -> int:
         for m in msgs:
             print("\n" + m.text)
         return 0
+    trades = _store() if any(m.trade for m in msgs) else None
+    spy = None
+    if trades is not None and ap is not None:
+        try:
+            spy = ap.latest_prices(["SPY"]).get("SPY")
+        except Exception:  # noqa: BLE001 — sin SPY la operación igual se registra
+            spy = None
     for m in msgs:
         tg.send(m.text)
         sent.update(m.keys)
         store.save(sent, res.now.date())  # guarda después de cada uno por si el siguiente falla
+        if m.trade is not None:
+            m.trade.spy_entry = spy
+            trades.add(m.trade)
     print(f"\nMandé {len(msgs)} mensaje(s) a Telegram.")
     return 0
 
@@ -94,6 +112,48 @@ def cmd_telegram_test(args) -> int:
     plan = make_plan(d.price, now.date(), cfg.plan, days)
     tg.send("🧪 <b>EJEMPLO</b> (datos inventados, no es una señal):\n\n" + format_alert(ev, plan, now))
     print("Mandé la alerta de ejemplo. Revisa Telegram.")
+    return 0
+
+
+def cmd_track(args) -> int:
+    """Cierre diario: revisa stop/objetivo/fecha límite de las operaciones simuladas."""
+    from datetime import datetime, timedelta
+
+    from .schedule import NY
+    from .tracking.daily import track
+    from .tracking.report import format_closed
+    cfg = load_config(args.config)
+    tg = None if args.dry_run else _telegram()
+    _, ap = _clients()
+    store = _store()
+    now = datetime.now(NY)
+    cal = ap.calendar(now.date() - timedelta(days=30), now.date())
+    closed = track(store, ap, cal, now, cfg.costs)
+    print(f"Abiertas que siguen: {len(store.open_trades())} · cerradas hoy: {len(closed)}")
+    for c in closed:
+        txt = format_closed(c, cfg.report.notional_mxn)
+        print("\n" + txt)
+        if tg:
+            tg.send(txt)
+    return 0
+
+
+def cmd_report(args) -> int:
+    """Reporte semanal (domingo) con costos y contra SPY."""
+    from datetime import datetime, timedelta
+
+    from .schedule import NY
+    from .tracking.report import format_weekly
+    cfg = load_config(args.config)
+    tg = None if args.dry_run else _telegram()
+    store = _store()
+    today = datetime.now(NY).date()
+    txt = format_weekly(store.closed_between(today - timedelta(days=6), today), store.all_closed(),
+                        store.open_trades(), today, cfg.costs, cfg.report.notional_mxn)
+    print(txt)
+    if tg:
+        tg.send(txt)
+        print("\nMandé el reporte a Telegram.")
     return 0
 
 
@@ -127,6 +187,12 @@ def main(argv=None) -> int:
     sc.set_defaults(func=cmd_scan)
     tt = sub.add_parser("telegram-test", help="Manda una alerta de ejemplo a Telegram")
     tt.set_defaults(func=cmd_telegram_test)
+    tr = sub.add_parser("track", help="Cierre diario de operaciones simuladas")
+    tr.add_argument("--dry-run", action="store_true", help="No manda nada a Telegram")
+    tr.set_defaults(func=cmd_track)
+    rp = sub.add_parser("report", help="Reporte semanal")
+    rp.add_argument("--dry-run", action="store_true", help="No manda nada a Telegram")
+    rp.set_defaults(func=cmd_report)
     args = p.parse_args(argv)
     if args.config is None:
         from .config import DEFAULT_CONFIG

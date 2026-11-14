@@ -32,9 +32,13 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       avisar; caché por día en data/cache/analysis/; guía "subio" suma punto). Confianza
       < llm.min_confidence no se manda. Sin ANTHROPIC_API_KEY el bot sigue sin lectura.
       Probado con noticias reales (KSPI). El usuario cargó $20 de crédito.
-- [ ] Fase 4: SQLite, cierre diario de operaciones simuladas (stop/objetivo/fecha límite),
-      reporte semanal domingo con costos (config.yaml: comisión GBM 0.25%+IVA conservador,
-      0.5% tipo de cambio, 10% ISR sobre ganancia neta) vs. SPY. Pruebas del cálculo.
+- [x] Fase 4: `store/db.py` (SQLite data/pead.sqlite, una fila por alerta mandada, con SPY
+      de entrada), `tracking/costs.py` (comisión+IVA ida y vuelta, FX, ISR sobre neto del
+      periodo, punto de equilibrio ~1.1%), `tracking/exits.py` (gap → apertura; stop y
+      objetivo el mismo día → stop; fecha límite → cierre), `tracking/daily.py` (día de
+      entrada solo minutos tras la alerta; solo sesiones terminadas + 16 min),
+      `tracking/report.py` (cierre y semanal vs. SPY mismos días sin costos; aviso < 20 ops).
+      Comandos `track` y `report` (con --dry-run). `report.notional_mxn` = 10,000.
 - [ ] Fase 5: backtest 2 años; explicar look-ahead y supervivencia; decir claramente si no
       le gana a SPY después de costos. Pendiente confirmar historia del plan gratis de Finnhub.
 - [ ] Fase 6: GitHub Actions (repo público) con cron; costo mensual.

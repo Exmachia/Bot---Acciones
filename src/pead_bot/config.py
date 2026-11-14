@@ -50,6 +50,10 @@ class CostsCfg(BaseModel):
     isr_pct: float = 10
 
 
+class ReportCfg(BaseModel):
+    notional_mxn: float = 10_000
+
+
 class ScheduleCfg(BaseModel):
     premarket_scan_ny: str = "08:30"
     scan_interval_minutes: int = 15
@@ -64,6 +68,7 @@ class Config(BaseModel):
     llm: LlmCfg = Field(default_factory=LlmCfg)
     costs: CostsCfg = Field(default_factory=CostsCfg)
     schedule: ScheduleCfg = Field(default_factory=ScheduleCfg)
+    report: ReportCfg = Field(default_factory=ReportCfg)
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG) -> Config:

@@ -36,6 +36,9 @@ costs:                          # se aplican en reporte y backtest
   fx_spread_pct: 0.5            # costo de tipo de cambio (ida y vuelta)
   isr_pct: 10                   # ISR sobre ganancia neta (SIC)
 
+report:
+  notional_mxn: 10000           # pesos simulados por operación (para traducir % a pesos)
+
 schedule:
   premarket_scan_ny: "08:30"    # hora de Nueva York
   scan_interval_minutes: 15

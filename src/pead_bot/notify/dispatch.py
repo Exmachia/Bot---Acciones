@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
 from ..config import Config
 from ..scanner import ScanResult
+from ..store.db import Trade
 from ..strategy.plan import make_plan
 from .format import format_alert, format_pending, max_points
 
@@ -22,6 +23,7 @@ from .format import format_alert, format_pending, max_points
 class Outgoing:
     keys: list[str]   # se marcan como enviadas solo si el mensaje sí salió
     text: str
+    trade: Trade | None = field(default=None)  # operación simulada a registrar si sale
 
 
 def is_pre_open(res: ScanResult) -> bool:
@@ -52,7 +54,10 @@ def build_messages(res: ScanResult, cfg: Config, sent: set[str]) -> list[Outgoin
         if key in sent:
             continue
         plan = make_plan(ev.data.price, day, cfg.plan, res.trading_days)
-        out.append(Outgoing([key], format_alert(ev, plan, res.now, pts, source=ev.source)))
+        trade = Trade(ev.data.symbol, ev.data.name, res.now, day, plan.entry, plan.stop,
+                      plan.target, plan.deadline, ev.score,
+                      ev.analysis.confianza if ev.analysis is not None else None)
+        out.append(Outgoing([key], format_alert(ev, plan, res.now, pts, source=ev.source), trade))
 
     if is_pre_open(res):
         new = [ev for ev in res.evaluations

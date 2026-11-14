@@ -16,7 +16,7 @@ moviéndose en la dirección de una sorpresa de resultados durante días).
 | 1. Datos y filtros | ✅ |
 | 2. Telegram | ✅ |
 | 3. Claude (noticias) | ✅ |
-| 4. Registro y reporte | pendiente |
+| 4. Registro y reporte | ✅ |
 | 5. Backtest | pendiente |
 | 6. Despliegue | pendiente |
 
@@ -70,7 +70,10 @@ python -m pytest                       # pruebas
 python -m pead_bot.cli scan --dry-run  # escanea e imprime por qué pasa o no cada candidato
 python -m pead_bot.cli scan            # igual, y además manda las alertas a Telegram
 python -m pead_bot.cli telegram-test   # manda una alerta de EJEMPLO para ver el formato
+python -m pead_bot.cli track           # cierre diario (16:30 NY) de operaciones simuladas
+python -m pead_bot.cli report          # reporte semanal (domingo) con costos y contra SPY
 ```
+`track` y `report` aceptan `--dry-run` para imprimir sin mandar a Telegram.
 
 ### Qué manda a Telegram
 - ⏳ **Pendientes de confirmación** (antes de abrir): pasan todo menos el volumen
@@ -102,6 +105,22 @@ Todos los números están en `config.yaml`.
 4. **Confirmación:** **volumen relativo** > 2x (hoy se negocia el doble de lo normal para esta hora).
 5. Plan: entrada al precio actual, **stop-loss** −5% (salida para limitar pérdida),
    objetivo +8%, salida forzada a los 5 días hábiles.
+
+### Operaciones simuladas y reporte (fase 4)
+Cada alerta 🟢 que sale se guarda en `data/pead.sqlite` como si hubieras comprado al precio
+de la alerta (sin dinero real). El cierre diario la cierra sola:
+- **Día de entrada:** solo cuenta lo que pasó *después* de la alerta.
+- **Salto a la baja o al alza** (abre más allá del stop u objetivo): sale al precio de apertura.
+- **Toca stop y objetivo el mismo día:** se asume que tocó primero el stop (lo conservador).
+- **Fecha límite:** sale al cierre de ese día.
+
+**Costos** (`config.yaml`): comisión 0.25% + IVA al comprar y al vender, 0.5% de tipo de
+cambio, e ISR de 10% sobre la ganancia neta del periodo (las pérdidas restan antes).
+Con eso, cada operación necesita subir ~1.1% solo para no perder.
+
+**Contra SPY:** para cada operación se mide qué hizo SPY (el S&P 500) en esos mismos días,
+sin costos. Si la estrategia no le gana, no vale la pena. El reporte avisa que hacen falta
+al menos 20 operaciones antes de sacar conclusiones.
 
 ### Detalles técnicos que importan
 - **Horarios:** se calculan en hora de Nueva York (que cambia por horario de verano) y se
