@@ -64,10 +64,12 @@ def run_scan(cfg: Config, fh: FinnhubClient, ap: AlpacaClient, now: datetime | N
         daily.update(ap.bars(chunk, "1Day", now - timedelta(days=45), now - SIP_DELAY, feed="sip"))
         prices.update(ap.latest_prices(chunk))
 
-    # 3) Volumen de hoy (SIP de minuto hasta hace 16 min) para el volumen relativo
+    # 3) Volumen de hoy (SIP de minuto hasta hace 16 min) para el volumen relativo.
+    #    Solo si HOY es la sesión en juego: después del cierre, los reportes vigentes
+    #    reaccionan mañana y el volumen de hoy (antes del reporte) no confirma nada.
     today_vol: dict[str, float] = {}
     minutes = 0.0
-    if session and now > session.open + SIP_DELAY:
+    if session and session.date == active and now > session.open + SIP_DELAY:
         sip_end = min(now - SIP_DELAY, session.close)
         minutes = session_minutes_elapsed(sip_end, session.open, session.close)
         for chunk in _chunks(symbols, 100):

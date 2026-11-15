@@ -161,7 +161,7 @@ valor de mercado aproximado, sin el filtro de Claude (no se puede probar sin ver
 `.github/workflows/bot.yml` corre gratis (repo público) en estos horarios (CDMX):
 - **Lun-vie cada 15 min, 6:00 a 15:45:** escanea, manda alertas, revisa tus jugadas y se queda
   escuchando tus botones hasta la siguiente corrida.
-- **Lun-vie 15:45:** cierre diario de operaciones simuladas.
+- **Lun-vie 15:50:** cierre diario de operaciones simuladas.
 - **Domingo 17:00:** reporte semanal.
 
 **El historial** (operaciones, decisiones, avisos ya mandados) se guarda **cifrado** (AES-256)

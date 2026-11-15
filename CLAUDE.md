@@ -72,7 +72,7 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       objetivo, último día, cierre. Comando `inbox`. Alerta de ejemplo usa símbolo EJEM (no
       se guarda).
 - [x] Fase 6: `.github/workflows/bot.yml` (cron UTC: */15 12-21 lun-vie → scan + listen 11 min;
-      21:45 lun-vie → track; dom 23:00 → report; workflow_dispatch con comando). Historial en
+      21:50 lun-vie → track (no :45: chocaría con el scan y concurrency cancelaría uno); dom 23:00 → report; workflow_dispatch con comando). Historial en
       rama `estado` cifrado con AES-256 (`scripts/state.sh`, secreto STATE_KEY generado en .env).
       `concurrency: bot` para no pisar el historial. Repo público y rama de trabajo = default
       (los cron solo corren en la rama default). Secrets los pone el usuario en GitHub. Sin secretos, la corrida no hace nada (no falla).
@@ -81,4 +81,6 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
 - Horarios en America/New_York con zoneinfo; mostrar en CDMX.
 - Alpaca gratis: precio en vivo IEX; volumen SIP con 15 min de retraso (por eso RVOL "hasta hace 16 min").
 - Ventana de reportes: cuenta si la sesión en juego es su primer día de reacción (`is_fresh`).
+- RVOL solo se mide si hoy ES la sesión en juego; después del cierre los reportes vigentes
+  reaccionan mañana y quedan como pendientes (corregido en la revisión del 14 nov).
 - Mac del usuario: Python 3.15 en `~/Proyectos/Bot---Acciones/.venv`.

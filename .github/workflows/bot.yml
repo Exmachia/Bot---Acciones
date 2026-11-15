@@ -5,7 +5,8 @@ name: Bot de alertas
 on:
   schedule:
     - cron: "*/15 12-21 * * 1-5"   # cada 15 min, lun-vie 6:00–15:45 CDMX: escaneo + avisos + botones
-    - cron: "45 21 * * 1-5"        # lun-vie 15:45 CDMX: cierre diario de operaciones simuladas
+    - cron: "50 21 * * 1-5"        # lun-vie 15:50 CDMX: cierre diario (no a :45, que choca con el escaneo
+                                   # y GitHub cancelaría uno de los dos al formarse juntos)
     - cron: "0 23 * * 0"           # domingo 17:00 CDMX: reporte semanal
   workflow_dispatch:                # botón "Run workflow" para correrlo a mano
     inputs:
@@ -75,7 +76,7 @@ jobs:
         run: |
           if [ "$EVENT" = "workflow_dispatch" ]; then
             CMD="$INPUT_CMD"
-          elif [ "$SCHEDULE" = "45 21 * * 1-5" ]; then
+          elif [ "$SCHEDULE" = "50 21 * * 1-5" ]; then
             CMD=track
           elif [ "$SCHEDULE" = "0 23 * * 0" ]; then
             CMD=report

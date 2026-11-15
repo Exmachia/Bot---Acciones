@@ -60,3 +60,17 @@ def test_scan_end_to_end():
     assert not by["CHASE"].passed
     assert [c.name for c in by["CHASE"].checks if c.passed is False] == ["no_perseguir"]
     assert res.evaluations[0].data.symbol == "GOOD"
+
+
+def test_after_close_does_not_use_todays_volume_for_tomorrows_reaction():
+    """Reporte de hoy después del cierre: reacciona mañana. El volumen de hoy (antes del
+    reporte) no debe confirmar nada; queda pendiente para la lista de pre-apertura."""
+    class LateFH(FakeFH):
+        def earnings_calendar(self, start, end):
+            return [EarningsReport("LATE", date(2026, 11, 12), "amc", 1.30, 1.00, 120, 100)]
+
+    after_close = datetime(2026, 11, 12, 16, 45, tzinfo=NY)
+    res = run_scan(Config(), LateFH(), FakeAP(), now=after_close)
+    ev = res.evaluations[0]
+    assert res.active_day == date(2026, 11, 13)
+    assert ev.data.rvol is None and not ev.passed and ev.pending_only
