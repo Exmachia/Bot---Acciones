@@ -76,6 +76,10 @@ con noticias) para operaciones de 1 a 5 días. El usuario vive en México
       rama `estado` cifrado con AES-256 (`scripts/state.sh`, secreto STATE_KEY generado en .env).
       `concurrency: bot` para no pisar el historial. Repo público y rama de trabajo = default
       (los cron solo corren en la rama default). Secrets los pone el usuario en GitHub. Sin secretos, la corrida no hace nada (no falla).
+      16-nov-2026: el grupo `bot` se atoró en GitHub → ahora `bot-v2`. Los cron de GitHub no se
+      disparaban → arranque principal = cron-job.org llamando workflow_dispatch (token fine-grained solo
+      Actions R/W de este repo, lo guarda el usuario en cron-job.org). Input `escuchar=si` hace que
+      el scan manual también escuche botones 11 min. Los cron de GitHub quedan de respaldo.
 
 ## Notas técnicas
 - Horarios en America/New_York con zoneinfo; mostrar en CDMX.

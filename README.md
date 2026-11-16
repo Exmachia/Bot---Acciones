@@ -175,6 +175,28 @@ Run workflow** puedes correrlo a mano para probar.
 
 Una vez que corre en GitHub, no lo corras también en tu compu (tendrías dos historiales).
 
+**Despertador externo (el arranque principal).** Los horarios de GitHub a veces no se disparan
+(el 16-nov-2026 no corrió ninguno). Por eso un servicio gratis, [cron-job.org](https://cron-job.org),
+le pide a GitHub que corra el bot a la hora exacta. Los horarios de GitHub se quedan de respaldo.
+1. **Llave de GitHub** (solo para lanzar este bot): GitHub → tu foto → Settings → Developer settings →
+   Personal access tokens → **Fine-grained tokens** → Generate new token. Repository access:
+   *Only select repositories* → `Bot---Acciones`. Permissions → Repository → **Actions: Read and
+   write**. Nada más. Cópiala y pégala solo en cron-job.org (nunca en el chat).
+2. **cron-job.org**: crea 3 tareas (zona horaria `America/Mexico_City`), todas así:
+   - URL: `https://api.github.com/repos/Exmachia/Bot---Acciones/actions/workflows/bot.yml/dispatches`
+   - Método **POST**. Encabezados: `Authorization: Bearer <tu llave>`,
+     `Accept: application/vnd.github+json`, `Content-Type: application/json`.
+   - Cuerpo (cambia `comando` / `escuchar` según la tarea):
+     `{"ref":"claude/post-earnings-drift-bot-s5b6w4","inputs":{"comando":"scan","escuchar":"si"}}`
+
+   | Tarea | Cuándo (CDMX) | comando | escuchar |
+   |---|---|---|---|
+   | Escaneo | lun-vie, cada 15 min de 6:00 a 15:45 | `scan` | `si` |
+   | Cierre | lun-vie 15:50 | `track` | `no` |
+   | Reporte | domingo 17:00 | `report` | `no` |
+
+   Respuesta correcta de GitHub: **204** (sin contenido).
+
 ### Etapa 1: ¿y si se mantiene más tiempo? (`backtest --variantes`)
 6 variantes fijadas **antes** de ver resultados (5, 20, 40 y 60 días; entrada el mismo día o al
 día siguiente). Se eligió con la 1a mitad del año y se confirmó una sola vez con la 2a:

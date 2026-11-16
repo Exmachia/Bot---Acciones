@@ -1,5 +1,8 @@
 # Fase 6: el bot corre solo en GitHub Actions (gratis en repos públicos).
 # Horarios en UTC. CDMX = UTC−6 todo el año. Nueva York = UTC−5 (invierno) / UTC−4 (verano).
+# Los horarios de GitHub a veces no se disparan (pasó el 16-nov-2026). El arranque principal es un
+# despertador externo (cron-job.org) que lanza "Run workflow" con comando + escuchar=si; ver README.
+# Estos horarios se quedan como respaldo.
 name: Bot de alertas
 
 on:
@@ -13,6 +16,9 @@ on:
       comando:
         description: "scan, track, report o guia"
         default: scan
+      escuchar:
+        description: "si = después del escaneo, escuchar los botones 11 min (lo usa el despertador externo)"
+        default: "no"
 
 concurrency:
   group: bot-v2           # nunca dos corridas al mismo tiempo (comparten el historial).
@@ -92,7 +98,9 @@ jobs:
         run: python -m pead_bot.cli ${{ steps.cmd.outputs.cmd }}
 
       - name: Escuchar botones hasta la siguiente corrida
-        if: steps.check.outputs.ok == 'true' && steps.cmd.outputs.cmd == 'scan' && github.event_name == 'schedule'
+        if: >-
+          steps.check.outputs.ok == 'true' && steps.cmd.outputs.cmd == 'scan' &&
+          (github.event_name == 'schedule' || github.event.inputs.escuchar == 'si')
         continue-on-error: true
         run: python -m pead_bot.cli listen --minutos 11
 
