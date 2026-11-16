@@ -15,7 +15,8 @@ on:
         default: scan
 
 concurrency:
-  group: bot              # nunca dos corridas al mismo tiempo (comparten el historial)
+  group: bot-v2           # nunca dos corridas al mismo tiempo (comparten el historial).
+                          # Antes "bot": esa fila se atoró en GitHub el 16-nov-2026.
   cancel-in-progress: false
 
 permissions:
